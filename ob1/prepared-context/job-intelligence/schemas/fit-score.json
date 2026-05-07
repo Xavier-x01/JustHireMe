@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ob1://job-intelligence/fit-score",
+  "title": "FitScore",
+  "description": "Composite scoring result from the evaluator agent for a single lead-candidate pair.",
+  "type": "object",
+  "required": ["job_id", "score", "reason", "match_points", "gaps", "components"],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$",
+      "description": "Lead identifier this score belongs to."
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Final composite fit score."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Single-sentence narrative explanation of the score."
+    },
+    "match_points": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Concrete evidence strings from profile graph (project names, skills, experience)."
+    },
+    "gaps": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Unmet requirements. Used for upskilling recommendations."
+    },
+    "components": {
+      "type": "object",
+      "description": "Breakdown of score sub-components for auditability.",
+      "properties": {
+        "source_signal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Platform reputation weight."
+        },
+        "quality_gate_penalty": {
+          "type": "integer",
+          "minimum": -30,
+          "maximum": 0,
+          "description": "Deduction from quality gate checks."
+        },
+        "seniority_alignment": {
+          "type": "integer",
+          "minimum": -20,
+          "maximum": 10,
+          "description": "Bonus/penalty for seniority match."
+        },
+        "semantic_similarity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40,
+          "description": "LanceDB cosine similarity contribution."
+        },
+        "llm_reasoning_bonus": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Optional LLM proof-of-work evaluation bonus."
+        },
+        "feedback_adjustment": {
+          "type": "integer",
+          "minimum": -10,
+          "maximum": 10,
+          "description": "Adjustment from user feedback learning."
+        }
+      }
+    },
+    "is_freelance": {
+      "type": "boolean",
+      "description": "True when freelance scoring variant used (projects weighted 3x, no seniority rules)."
+    },
+    "budget_realistic": {
+      "type": ["boolean", "null"],
+      "description": "For freelance leads: whether posted budget aligns with market rate. Null if no budget posted."
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}
