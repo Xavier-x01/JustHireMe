@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ob1://job-intelligence/lead",
+  "title": "Lead",
+  "description": "A normalized job or freelance posting committed to the CRM after quality gate pass.",
+  "type": "object",
+  "required": ["job_id", "title", "company", "url", "platform", "status", "kind"],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "MD5 hash of the canonical URL. Dedup key.",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "title": {
+      "type": "string",
+      "description": "Job or gig title as scraped."
+    },
+    "company": {
+      "type": "string",
+      "description": "Hiring company or client name."
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical posting URL."
+    },
+    "platform": {
+      "type": "string",
+      "description": "Source adapter identifier.",
+      "examples": ["greenhouse", "lever", "ashby", "hn_hiring", "wellfound", "upwork", "freelancer", "scout"]
+    },
+    "status": {
+      "type": "string",
+      "description": "Current pipeline stage.",
+      "enum": [
+        "discovered",
+        "evaluating",
+        "tailoring",
+        "approved",
+        "applied",
+        "interviewing",
+        "rejected",
+        "accepted",
+        "discarded",
+        "matched",
+        "bidding",
+        "proposal_sent",
+        "awarded",
+        "completed"
+      ]
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Composite fit score from scoring engine."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Human-readable explanation of the score or gate decision."
+    },
+    "match_points": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Concrete evidence strings from the candidate graph supporting this match."
+    },
+    "gaps": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Requirements the candidate does not currently evidence."
+    },
+    "description": {
+      "type": "string",
+      "description": "Full or summarized job posting text."
+    },
+    "asset_path": {
+      "type": ["string", "null"],
+      "description": "Local filesystem path to tailored resume PDF."
+    },
+    "cover_letter_path": {
+      "type": ["string", "null"],
+      "description": "Local filesystem path to cover letter PDF."
+    },
+    "selected_projects": {
+      "type": ["string", "null"],
+      "description": "Comma-separated project titles chosen for this application."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["job", "freelance"],
+      "description": "Distinguishes full-time/contract positions from freelance gigs."
+    },
+    "budget": {
+      "type": ["string", "null"],
+      "description": "Budget range for freelance leads (e.g. '$500-1000' or '$50-80/hr'). Null for job leads."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when lead was first committed."
+    }
+  },
+  "additionalProperties": false
+}
