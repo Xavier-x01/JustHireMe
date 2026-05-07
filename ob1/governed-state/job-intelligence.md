@@ -69,6 +69,6 @@
 
 ---
 
-## Open Follow-ups (Not Yet Governed)
+## Open Follow-ups
 
-- [ ] Create `prepared-context/job-intelligence/skill-mapping.md` to map free-form JustHireMe skills to ob1 canonical skill ontology
+- [x] ~~Create `prepared-context/job-intelligence/skill-mapping.md`~~ — **Done.** 90-skill mapping table covering `TECH_CATEGORY`, ingestor fallbacks, and generator display groupings. Adjacency blocklist documented.
