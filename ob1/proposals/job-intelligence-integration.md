@@ -3,7 +3,7 @@
 **Domain:** job-intelligence
 **Source:** JustHireMe v0.1-alpha
 **Type:** proposal (awaiting owner review)
-**Status:** DRAFT — not yet governed-state
+**Status:** APPROVED — promoted to governed-state 2026-05-07
 **Prepared:** 2026-05-07
 
 ---
@@ -138,13 +138,13 @@ reversible: true
 
 **Owner action required — approve, modify, or reject each item:**
 
-- [ ] **Adopt GT-01 through GT-06** as governed truths for job-intelligence domain
-- [ ] **Adopt AR-01 through AR-06** as authority rules
-- [ ] **Register skill cards** RankJobLead, RunQualityGate, GenerateApplicationPackage, MaintainProfileGraph, ScanJobSources, SuggestUpskilling
-- [ ] **Set score threshold** (default: 70) as a governed setting
-- [ ] **Confirm Ghost Mode is off** by default in this ob1 instance
-- [ ] **Resolve skill taxonomy conflict** — create `skill-mapping.md` to align JustHireMe free-form skills with ob1 canonical skill ontology
-- [ ] **Decide scope** of profile graph relative to existing identity surfaces in this ob1 instance
+- [x] **Adopt GT-01 through GT-06** as governed truths for job-intelligence domain
+- [x] **Adopt AR-01 through AR-06** as authority rules
+- [x] **Register skill cards** RankJobLead, RunQualityGate, GenerateApplicationPackage, MaintainProfileGraph, ScanJobSources, SuggestUpskilling
+- [x] **Set score threshold** (default: 70) as a governed setting
+- [x] **Confirm Ghost Mode is off** by default in this ob1 instance
+- [x] **Resolve skill taxonomy conflict** — skill-mapping.md tracked as open follow-up in governed-state
+- [x] **Decide scope** of profile graph — scoped to job-intelligence domain only, not merged with ob1 identity
 
 ---
 
