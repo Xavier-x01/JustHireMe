@@ -1,110 +1,128 @@
 # Daily Journal — cici-ai Team
 
-A lightweight, GitHub-tracked journal for everyone on the cici-ai team. One entry per person per day. Easy to fill in, easy to review, easy to find later.
+One short entry per person per day. GitHub-tracked, beginner-friendly, no special tools required.
 
 ---
 
-## 1. Where to put your journal
-
-Every entry goes in this path inside the repo:
+## Quick Start
 
 ```
-docs/skill-work/work-cici/daily-journal/entries/YYYY-MM-DD-<yourname>.md
+1. Copy the template to  users/<your-name>/YYYY-MM-DD.md
+2. Fill it in (use the AI prompt or the helper script to get a draft)
+3. git add → git commit → git push
+```
+
+That's it. Details below if you need them.
+
+---
+
+## Where your journal file goes
+
+```
+docs/skill-work/work-cici/daily-journal/users/<your-name>/YYYY-MM-DD.md
 ```
 
 Examples:
 ```
-entries/2026-05-08-alice.md
-entries/2026-05-08-bob.md
+users/alice/2026-05-08.md
+users/bob/2026-05-08.md
 ```
 
-Use the same name every day so your entries are easy to find as a group.
+Use **the same name every day** — it becomes your personal archive. Everyone has their own folder so you never conflict with a teammate's commit.
 
 ---
 
-## 2. How to fill it out
+## How to fill it in
 
-Open (or create) your entry file and fill in each section:
+The template has **6 sections**. Keep each one short (2–5 lines):
 
 | Section | What to write |
 |---------|--------------|
-| **What I Worked On** | Tasks, tickets, or features you touched today |
-| **What Changed** | What actually changed — code, docs, config, anything |
-| **What Is Blocked** | Anything you are stuck on. Write "Nothing blocked" if clear. |
+| **What I Worked On** | Tasks or features you touched today |
+| **What Changed** | What actually changed — code, docs, config |
+| **What Is Blocked** | Blockers. Write "Nothing blocked" if clear. |
 | **What I Plan to Do Next** | What you will work on next session |
-| **Evidence / Notes** | Commit hashes, PR links, screenshots, meeting notes |
+| **Evidence / Quick Links** | PR, commit, issue, Loom, or any useful link |
 
-Keep each section short — 2 to 5 lines is enough. You are writing for your future self and your teammates, not for an audience.
+Delete any Evidence table rows you don't have links for.
 
 ---
 
-## 3. Using the helper script (recommended for beginners)
+## Option A — AI chatbot (no install, works everywhere)
 
-The helper creates your draft, opens it for editing, and optionally commits it — all in one command.
+Best for beginners or anyone working without a terminal.
 
-**Run this from the repo root:**
+1. Open `daily-journal-prompt.md` in this folder.
+2. Copy the prompt block inside it.
+3. Paste it into Claude, Gemini, ChatGPT, or any AI chat.
+4. Replace `[paste your notes]` with what you remember from today.
+5. Also paste your terminal history if you have it (`history | tail -40` on Mac/Linux).
+6. The AI returns a draft. **Read every line. Fix anything wrong.**
+7. Save the corrected text to `users/<your-name>/YYYY-MM-DD.md`.
+
+---
+
+## Option B — Helper script (Mac / Linux)
+
+Automates the boring parts. Still requires you to review before committing.
 
 ```bash
+# Run from the repo root
 bash docs/skill-work/work-cici/daily-journal/daily-journal-helper.sh
 ```
 
 What it does:
-1. Asks for your name (or uses `$JOURNAL_AUTHOR` if you set it).
-2. Creates `entries/YYYY-MM-DD-<yourname>.md` from the template.
-3. Opens the file in your editor (`$EDITOR`, or `nano`, or `vi`).
-4. After you save and close, shows you the file path.
-5. Asks if you want to commit — **it never commits without asking**.
-6. Prints the push command but does not push automatically.
+1. Asks for your name (type it once; same name every day).
+2. Creates `users/<your-name>/YYYY-MM-DD.md` from the template.
+3. Opens it in your editor (`$EDITOR`, or `nano`, or `vi`).
+4. After you save and close, shows you the file location.
+5. Asks whether to commit — **it never commits without asking**.
+6. Prints the push command — **it never pushes automatically**.
 
-**Optional: set your name once so you are never asked:**
-
+Skip the name prompt by setting your name once:
 ```bash
-export JOURNAL_AUTHOR=alice   # add to your ~/.bashrc or ~/.zshrc to make it permanent
+export JOURNAL_AUTHOR=alice   # add to ~/.bashrc or ~/.zshrc to make it permanent
 ```
 
 ---
 
-## 4. Using the AI prompt helper
+## How to commit and push
 
-If you want an AI to help you draft your entry from rough notes:
-
-1. Open `daily-journal-prompt.md`.
-2. Copy the prompt block inside it.
-3. Paste it into Claude, ChatGPT, or any AI chat.
-4. Replace `[your raw notes here]` with whatever you jotted down today.
-5. The AI produces a draft. **Read it. Fix anything wrong.**
-6. Paste the corrected text into your entry file.
-7. Then follow the commit steps below.
-
-The AI prompt never saves or commits anything. You are always in control.
-
----
-
-## 5. How to commit and push
-
-After your entry is ready (whether you used the helper or filled it in manually):
+Whether you used the AI prompt or the helper, committing is the same two commands:
 
 ```bash
-# Stage your file
-git add docs/skill-work/work-cici/daily-journal/entries/YYYY-MM-DD-<yourname>.md
-
-# Commit it
-git commit -m "journal: YYYY-MM-DD <yourname>"
-
-# Push to GitHub
+git add docs/skill-work/work-cici/daily-journal/users/<your-name>/YYYY-MM-DD.md
+git commit -m "journal: YYYY-MM-DD <your-name>"
 git push -u origin $(git branch --show-current)
 ```
 
-Replace `YYYY-MM-DD` and `<yourname>` with the actual values. Once pushed, your entry is visible to the whole team on GitHub.
+Once pushed, your entry is visible to the whole team on GitHub.
 
 ---
 
-## Files in this directory
+## How to browse everyone's journals on GitHub
+
+**Fastest way — File Finder:**
+
+1. Go to the repo on GitHub.
+2. Press **`t`** on your keyboard.
+3. Type `daily-journal/users/` to filter to all journal entries.
+4. Type a name or date to narrow further.
+
+**Browse by person:**
+Navigate to `docs/skill-work/work-cici/daily-journal/users/` — each subfolder is one person's complete archive, oldest to newest.
+
+**Browse by date across everyone:**
+Use GitHub's search: `path:daily-journal/users filename:2026-05-08`
+
+---
+
+## Files in this folder
 
 | File | What it is |
 |------|-----------|
 | `README.md` | This guide |
-| `daily-journal-template.md` | Blank template — do not edit this file directly |
-| `daily-journal-prompt.md` | AI prompt to help draft an entry from rough notes |
-| `daily-journal-helper.sh` | Shell script that automates the boring parts |
-| `entries/` | All submitted journal entries, one file per person per day |
+| `daily-journal-template.md` | Blank template — copy it, don't edit it directly |
+| `daily-journal-prompt.md` | AI chatbot prompt for drafting from notes + terminal history |
+| `daily-journal-helper.sh` | Optional shell script (bash, zero dependencies) |
+| `users/` | All submitted journals, one subfolder per person |

@@ -1,58 +1,71 @@
-# AI Draft Prompt — Daily Journal
+# Journal Drafter Prompt
 
-Use this prompt to get an AI (Claude, ChatGPT, or any other) to help you draft your journal entry from rough notes.
+Paste this into any AI chatbot (Claude, Gemini, ChatGPT) to turn your messy notes into a ready-to-review journal entry. No install, no account, no setup beyond the chat window.
 
 ---
 
 ## How to use
 
-1. Copy everything below the horizontal line.
-2. Paste it into the AI chat of your choice.
-3. Replace `[your raw notes here]` with whatever you actually wrote or remember from today.
-4. The AI will produce a draft. **Read it carefully and fix anything wrong before you save.**
-5. Save the final version to your journal file (see README for path and commit steps).
+1. Copy the prompt block below.
+2. Paste it into your AI chatbot.
+3. Replace the two placeholder sections with your actual notes and terminal history.
+4. Read the draft. Fix anything wrong or invented. Then save it to your file.
+5. **Never commit the draft without reading it first.**
 
 ---
 
-## The prompt (copy from here)
+## The prompt (copy everything inside the code block)
 
 ```
-I need to write a daily journal entry for my work today. Here are my raw notes:
+I need to write a daily work journal entry. Here is my input:
 
-[your raw notes here]
+--- MESSY NOTES ---
+[paste any notes you took during the day — rough is fine, even bullet fragments]
 
-Please turn these into a structured journal entry using exactly this format:
+--- TERMINAL HISTORY ---
+[paste your recent terminal history, e.g.: history | tail -40
+ or just the commands you remember running today]
+---
+
+Using only what I gave you above (do not invent anything), fill in this exact template:
 
 ---
-date: YYYY-MM-DD
+date: TODAY
 author: YOUR_NAME
 ---
 
-# Daily Journal — YYYY-MM-DD
+# Daily Journal — TODAY
 
 ## What I Worked On
-<clear summary of tasks, tickets, or features>
+<2–4 lines summarising the tasks, tickets, or features>
 
 ## What Changed
-<what actually changed in code, docs, or anywhere else>
+<what actually changed in code, docs, config, or anywhere else>
 
 ## What Is Blocked
-<any blockers, or "Nothing blocked" if clear>
+<any blockers, or "Nothing blocked">
 
 ## What I Plan to Do Next
 <what I intend to work on next session>
 
-## Evidence / Notes
-<any commits, PRs, links, or notes worth recording>
+## Evidence / Quick Links
+
+| Type | Link or Reference |
+|------|------------------|
+| PR / branch | <extract any PR or branch URLs from the notes/history, or leave blank> |
+| Commit | <extract any commit hashes from the notes/history, or leave blank> |
+| Issue / ticket | <extract any issue numbers or ticket IDs, or leave blank> |
+| Recording | <any Loom or screenshot links, or leave blank> |
+| Notes | <anything else worth saving> |
 
 Rules:
-- Use plain, clear language.
-- Do not invent details not present in my notes.
-- If my notes are unclear about a section, write a short placeholder like "TODO: fill in".
-- Keep each section to 2–5 lines max unless the notes justify more.
-- I will review and edit this before saving, so flag anything uncertain with [CHECK].
+- Write plain, clear sentences.
+- If a section has no information, write a one-line placeholder starting with TODO:.
+- Mark anything you are unsure about with [CHECK].
+- Keep each prose section to 2–5 lines maximum.
+- Fill the Evidence table only from URLs, hashes, or IDs present in my input.
 ```
 
 ---
 
-**After the AI responds:** review every line, fix anything that looks wrong or invented, then follow the commit steps in README.md.
+**After you get the draft:** read every line, delete anything invented, fill in any `TODO:` placeholders, then save it to `users/<your-name>/YYYY-MM-DD.md` and follow the commit steps in README.md.
