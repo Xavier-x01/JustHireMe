@@ -1,6 +1,7 @@
 import os
 import sqlite3 as _sq
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 import kuzu
 import lancedb
@@ -111,6 +112,19 @@ def _init_sql():
         CREATE TABLE IF NOT EXISTS settings(
             key TEXT PRIMARY KEY, val TEXT
         );
+        CREATE TABLE IF NOT EXISTS memory_items (
+            id TEXT PRIMARY KEY,
+            surface TEXT NOT NULL,
+            content TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            tags TEXT DEFAULT '[]',
+            status TEXT DEFAULT 'active',
+            priority INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_surface_status
+            ON memory_items(surface, status);
     """)
     # Migration: add columns if upgrading from older schema
     for col, definition in [
@@ -156,6 +170,13 @@ def _init_sql():
         c.commit()
     except Exception:
         pass  # column already exists
+    try:
+        c.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts "
+            "USING fts5(id UNINDEXED, surface, content, summary, tags)"
+        )
+    except Exception:
+        pass  # fts5 unavailable or already exists
     c.commit()
     c.close()
 
@@ -1559,3 +1580,180 @@ def _add_project_vec(pid: str, title: str, stack: str, impact: str):
                 vec.create_table("projects", data=rows)
     except Exception:
         pass
+
+
+# ── Structured memory surfaces ────────────────────────────────────────────────
+
+_VALID_SURFACES = {"north_star", "active_project", "decision", "brag", "thinking"}
+_VALID_STATUSES = {"active", "archived", "superseded"}
+
+_DECISION_KWS  = ["decided", "chose", "will not", "ruling out", "committed to"]
+_BRAG_KWS      = ["shipped", "won", "got the", "accepted", "hired", "closed", "achieved"]
+_GOAL_KWS      = ["goal:", "north star:", "i want", "my mission", "success looks like"]
+_PROJECT_KWS   = ["working on", "building", "project:", "milestone"]
+
+
+def _route_surface(content: str) -> str:
+    t = content.lower()
+    if any(k in t for k in _DECISION_KWS):
+        return "decision"
+    if any(k in t for k in _BRAG_KWS):
+        return "brag"
+    if any(k in t for k in _GOAL_KWS):
+        return "north_star"
+    if any(k in t for k in _PROJECT_KWS):
+        return "active_project"
+    return "thinking"
+
+
+def memory_capture(
+    surface: str,
+    content: str,
+    summary: str = "",
+    tags: list | None = None,
+    priority: int = 0,
+) -> dict:
+    if surface == "auto":
+        surface = _route_surface(content)
+    if surface not in _VALID_SURFACES:
+        raise ValueError(f"invalid surface '{surface}'; valid: {sorted(_VALID_SURFACES)}")
+    item_id = uuid.uuid4().hex[:21]
+    if not summary:
+        summary = (content[:117] + "...") if len(content) > 120 else content
+    tags_json = json.dumps(tags or [])
+    c = _sq.connect(sql)
+    c.execute(
+        "INSERT INTO memory_items(id, surface, content, summary, tags, priority) "
+        "VALUES (?,?,?,?,?,?)",
+        (item_id, surface, content, summary, tags_json, int(priority or 0)),
+    )
+    try:
+        c.execute(
+            "INSERT INTO memory_fts(id, surface, content, summary, tags) VALUES (?,?,?,?,?)",
+            (item_id, surface, content, summary, tags_json),
+        )
+    except Exception:
+        pass  # fts5 unavailable
+    c.commit()
+    c.close()
+    return {"id": item_id, "surface": surface, "summary": summary}
+
+
+def memory_recall(query: str | None = None) -> dict:
+    c = _sq.connect(sql)
+    c.row_factory = _sq.Row
+    result: dict = {
+        "north_star": [],
+        "active_projects": [],
+        "recent_decisions": [],
+        "recent_brags": [],
+        "thinking": [],
+    }
+    if query:
+        try:
+            rows = c.execute(
+                """
+                WITH ranked AS (
+                    SELECT id, rank FROM memory_fts WHERE memory_fts MATCH ?
+                )
+                SELECT m.id, m.surface, m.content, m.summary, m.tags,
+                       m.priority, m.created_at
+                FROM memory_items m
+                JOIN ranked r ON r.id = m.id
+                WHERE m.status = 'active'
+                ORDER BY r.rank
+                LIMIT 10
+                """,
+                (query,),
+            ).fetchall()
+            result["query_results"] = [dict(r) for r in rows]
+        except Exception:
+            result["query_results"] = []
+        c.close()
+        return result
+    rows = c.execute(
+        "SELECT id, surface, content, summary, tags, priority, created_at "
+        "FROM memory_items WHERE surface='north_star' AND status='active' "
+        "ORDER BY priority DESC, created_at DESC"
+    ).fetchall()
+    result["north_star"] = [dict(r) for r in rows]
+    rows = c.execute(
+        "SELECT id, surface, content, summary, tags, priority, created_at "
+        "FROM memory_items WHERE surface='active_project' AND status='active' "
+        "ORDER BY priority DESC, created_at DESC"
+    ).fetchall()
+    result["active_projects"] = [dict(r) for r in rows]
+    rows = c.execute(
+        "SELECT id, surface, content, summary, tags, priority, created_at "
+        "FROM memory_items WHERE surface='decision' AND status='active' "
+        "AND created_at >= datetime('now', '-14 days') ORDER BY created_at DESC"
+    ).fetchall()
+    result["recent_decisions"] = [dict(r) for r in rows]
+    rows = c.execute(
+        "SELECT id, surface, content, summary, tags, priority, created_at "
+        "FROM memory_items WHERE surface='brag' AND status='active' "
+        "AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC"
+    ).fetchall()
+    result["recent_brags"] = [dict(r) for r in rows]
+    rows = c.execute(
+        "SELECT id, surface, content, summary, tags, priority, created_at "
+        "FROM memory_items WHERE surface='thinking' AND status='active' "
+        "AND created_at >= datetime('now', '-7 days') "
+        "ORDER BY priority DESC, created_at DESC LIMIT 5"
+    ).fetchall()
+    result["thinking"] = [dict(r) for r in rows]
+    c.close()
+    return result
+
+
+def memory_update(
+    item_id: str,
+    status: str | None = None,
+    content: str | None = None,
+    summary: str | None = None,
+    priority: int | None = None,
+) -> dict:
+    c = _sq.connect(sql)
+    c.row_factory = _sq.Row
+    row = c.execute("SELECT * FROM memory_items WHERE id=?", (item_id,)).fetchone()
+    if row is None:
+        c.close()
+        raise ValueError(f"memory item not found: {item_id}")
+    updates: list[str] = ["updated_at = datetime('now')"]
+    params: list = []
+    if status is not None:
+        if status not in _VALID_STATUSES:
+            c.close()
+            raise ValueError(f"invalid status '{status}'; valid: {sorted(_VALID_STATUSES)}")
+        updates.append("status = ?")
+        params.append(status)
+    if content is not None:
+        updates.append("content = ?")
+        params.append(content)
+        derived = summary if summary is not None else (
+            (content[:117] + "...") if len(content) > 120 else content
+        )
+        updates.append("summary = ?")
+        params.append(derived)
+        try:
+            c.execute("DELETE FROM memory_fts WHERE id=?", (item_id,))
+            row_dict = dict(row)
+            c.execute(
+                "INSERT INTO memory_fts(id, surface, content, summary, tags) "
+                "VALUES (?,?,?,?,?)",
+                (item_id, row_dict["surface"], content, derived, row_dict["tags"]),
+            )
+        except Exception:
+            pass  # fts5 unavailable
+    elif summary is not None:
+        updates.append("summary = ?")
+        params.append(summary)
+    if priority is not None:
+        updates.append("priority = ?")
+        params.append(int(priority))
+    params.append(item_id)
+    c.execute(f"UPDATE memory_items SET {', '.join(updates)} WHERE id=?", params)
+    c.commit()
+    updated = dict(c.execute("SELECT * FROM memory_items WHERE id=?", (item_id,)).fetchone())
+    c.close()
+    return updated
