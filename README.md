@@ -22,6 +22,8 @@
   &middot;
   <a href="#quick-start">Quick Start</a>
   &middot;
+  <a href="#standard-procedure">Standard Procedure</a>
+  &middot;
   <a href="#agent-skill-and-mcp">Agent Skill + MCP</a>
   &middot;
   <a href="#contributing">Contributing</a>
@@ -62,9 +64,10 @@ JustHireMe 1.0.0 is the stable local-first core release. The supported scope is 
 | Frontend workbench | Stable v1 core |
 | Python sidecar API | Stable v1 core |
 | Scraper, ranking, vector matching, and customizer core | Supported open-source scope |
-| Windows desktop packaging | Stable release target |
+| Windows desktop packaging | Primary stable installer target |
+| macOS and Linux packaging | CI build path exists; check release notes for support level |
 | Browser automation / auto-apply | Experimental lab, disabled by default |
-| API key storage | Local app settings for now; OS keychain planned |
+| API key storage | Local app settings; `.env` is for development overrides; OS keychain planned |
 
 If you are new here, start with the frontend preview first. If you want to contribute backend behavior, source adapters, or packaging, use the full desktop setup below.
 
@@ -240,19 +243,27 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ```text
 JustHireMe/
-|-- src/                         React frontend
-|   |-- components/              Shared UI components
-|   |-- hooks/                   Data and websocket hooks
-|   |-- settings/                Settings panels
-|   `-- views/                   Main screens
-|-- backend/                     Python API and agents
-|   |-- agents/                  Scrapers, rankers, evaluator, generator
-|   |-- db/                      SQLite, Kuzu, LanceDB helpers
-|   |-- graph/                   Evaluation graph flow
-|   `-- tests/                   Backend tests
+|-- src/                         React frontend workbench
+|   |-- api/                     HTTP/WebSocket API clients and types
+|   |-- features/                Apply, dashboard, graph, pipeline, profile, settings
+|   |-- shared/                  Components, hooks, context, utilities
+|   `-- main.tsx                 Frontend entrypoint
+|-- backend/                     Python FastAPI sidecar
+|   |-- api/                     Main app, routers, auth, scheduler, WebSockets
+|   |-- core/                    Config, logging, version, telemetry, shared types
+|   |-- contracts/               Service and data contracts
+|   |-- data/                    SQLite repositories, graph/vector helpers, migrations
+|   |-- discovery/               Lead discovery, quality gate, source adapters
+|   |-- generation/              Resume, cover letter, and outreach generators
+|   |-- ranking/                 Fit scoring, criteria, semantic/evaluator logic
+|   |-- services/                Domain service apps and routers
+|   `-- tests/                   Backend unit, integration, and regression tests
 |-- src-tauri/                   Tauri Rust shell
+|   `-- resources/               Bundled sidecar/runtime resources generated for packages
+|-- website/                     Public website
 |-- docs/                        Architecture, source adapter, release docs
 |-- scripts/                     Build scripts
+|-- skills/                      Agent skill instructions
 `-- .github/                    CI, issue templates, PR template
 ```
 
@@ -276,7 +287,7 @@ Release notes include SHA256 checksums for the installer assets. The Windows ins
 
 | Tool | Version |
 | --- | --- |
-| Node.js | 20+ |
+| Node.js | 24 recommended; CI uses Node 24 |
 | Python | 3.13+ |
 | Rust | stable |
 | uv | latest stable |
@@ -294,7 +305,7 @@ Use this path if you just want to inspect the UI, design direction, or frontend 
 ```bash
 git clone https://github.com/vasu-devs/JustHireMe.git
 cd JustHireMe
-npm install
+npm ci
 npm run dev
 ```
 
@@ -307,7 +318,7 @@ Use this path if you want the Tauri shell and Python backend sidecar.
 ```bash
 git clone https://github.com/vasu-devs/JustHireMe.git
 cd JustHireMe
-npm install
+npm ci
 cd backend
 uv sync --dev
 cd ..
@@ -320,6 +331,14 @@ npm run tauri dev
 ```
 
 The Tauri shell starts the frontend and launches the Python backend sidecar/dev process.
+
+Install website dependencies only when working on the public website or running the full local check group:
+
+```bash
+cd website
+npm ci
+cd ..
+```
 
 ### Before Opening An Issue
 
@@ -334,16 +353,56 @@ The Tauri shell starts the frontend and launches the Python backend sidecar/dev 
 
 | Task | Command |
 | --- | --- |
+| Install frontend dependencies | `npm ci` |
+| Install backend dependencies | `cd backend && uv sync --dev` |
+| Install website dependencies | `cd website && npm ci` |
 | Frontend dev server | `npm run dev` |
+| Website dev server | `cd website && npm run dev` |
 | Desktop dev app | `npm run tauri dev` |
+| Version consistency check | `npm run version:check` |
 | TypeScript check | `npm run typecheck` |
 | Frontend tests | `npm test` |
 | Frontend build | `npm run build` |
-| Backend tests on Windows | `backend/.venv/Scripts/python.exe -m pytest backend/tests` |
-| Backend tests on macOS/Linux | `backend/.venv/bin/python -m pytest backend/tests` |
-| MCP server on Windows | `backend/.venv/Scripts/python.exe backend/mcp_server.py` |
-| MCP server on macOS/Linux | `backend/.venv/bin/python backend/mcp_server.py` |
+| Backend tests | `cd backend && uv run python -m pytest tests -q` |
+| Backend regression smoke | `cd backend && uv run python -m pytest tests/test_regressions.py tests/test_api.py::TestAuthGate` |
+| Rust tests | `cd src-tauri && cargo test --lib` |
 | Rust check | `cd src-tauri && cargo check` |
+| Website build | `cd website && npm run build` |
+| All local checks | `npm run check` |
+| Build sidecar | `npm run build:sidecar` |
+| Build frontend, website, and Rust check | `npm run build:all` |
+| Fast release smoke | `npm run release:smoke` |
+| Release preflight | `npm run release:preflight` |
+| Windows installer | `npm run release:windows` |
+| Linux packages | `npm run release:linux` |
+| macOS package | `npm run release:macos` |
+
+`npm run check` runs the version check, frontend typecheck, frontend tests, frontend build, website build, backend tests, Rust tests, and Rust check. Run `npm ci`, `cd backend && uv sync --dev`, and `cd website && npm ci` first so every lane has its dependencies.
+
+On Windows PowerShell, use `npm.cmd` instead of `npm` if the `npm.ps1` shim is blocked by execution policy. If your shell does not support `&&`, run the `cd` command and the following command as separate lines.
+
+---
+
+## Standard Procedure
+
+Use this workflow for normal development and pull requests:
+
+1. Sync from the lockfiles: `npm ci`, `cd backend && uv sync --dev`, and `cd website && npm ci` if the website or full check suite is involved.
+2. Keep changes focused. Core product work should preserve local-first storage, explainable ranking, and human-reviewed generation. Browser automation stays experimental and opt-in.
+3. Run targeted checks for the area you changed, then run `npm run check` before opening a PR when practical.
+4. Add or update tests for behavior changes. Use backend regression tests for ranking, source, API, storage, and generation changes.
+5. Update docs whenever setup, commands, release behavior, user-facing workflows, source adapter contracts, or privacy expectations change.
+6. Do not commit `.env`, API keys, cookies, bearer tokens, private resumes, local databases, graph/vector stores, generated PDFs, app data, or generated sidecar binaries.
+
+Use this release flow for maintainer builds:
+
+1. Bump all versioned files with `npm run version:bump -- X.Y.Z`.
+2. Run `npm run release:preflight`.
+3. Build the platform package with `npm run release:windows`, `npm run release:linux`, or `npm run release:macos`.
+4. For public releases, push a `vX.Y.Z` tag and let GitHub Actions build, sign, verify updater metadata, generate checksums, and publish release assets from CI.
+5. Verify generated updater artifacts with `npm run release:verify-updater -- release-assets vX.Y.Z` when checking a local asset folder.
+
+Detailed release checklists live in [docs/MAINTAINER_RELEASE_CHECKLIST.md](docs/MAINTAINER_RELEASE_CHECKLIST.md), [docs/windows-release.md](docs/windows-release.md), and [docs/PRODUCTION_RELEASE_ROADMAP.md](docs/PRODUCTION_RELEASE_ROADMAP.md).
 
 ---
 
@@ -419,6 +478,7 @@ On Windows, use the venv interpreter at `backend\\.venv\\Scripts\\python.exe`. M
 ### Source Adapters
 
 Source adapters turn external job sources into normalized lead dictionaries.
+Implementations live in `backend/discovery/sources/`.
 
 ```mermaid
 flowchart LR
@@ -432,7 +492,7 @@ Read: [docs/source-adapters.md](docs/source-adapters.md)
 
 ### Quality Gate
 
-The gate lives in `backend/agents/quality_gate.py`.
+The gate lives in `backend/discovery/quality_gate.py`.
 
 It checks:
 
@@ -510,17 +570,17 @@ Planned improvement:
 
 ---
 
-## Windows Release Build
+## Release Builds
 
-The first public packaging target is Windows. Public installers are built and published by GitHub Actions when a `v*` tag is pushed.
+Windows is the primary stable installer target. macOS and Linux packaging scripts and CI release lanes exist; check each release's notes for the currently supported platform level. Public installers should be built and published by GitHub Actions from a `v*` tag, not uploaded from a maintainer workstation.
 
 ```powershell
 npm run release:windows
 ```
 
-For local smoke tests without installer bundling, use `npm run release:smoke`.
+Use `npm run release:linux` or `npm run release:macos` for platform-specific local package builds. For local smoke tests without installer bundling, use `npm run release:smoke`.
 
-Release smoke test and packaging details: [docs/windows-release.md](docs/windows-release.md)
+Release smoke test and packaging details: [docs/windows-release.md](docs/windows-release.md), [docs/MAINTAINER_RELEASE_CHECKLIST.md](docs/MAINTAINER_RELEASE_CHECKLIST.md), and [docs/PRODUCTION_RELEASE_ROADMAP.md](docs/PRODUCTION_RELEASE_ROADMAP.md).
 
 ---
 
