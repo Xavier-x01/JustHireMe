@@ -15,7 +15,22 @@ env:
   NODE_VERSION: "24"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# ────────────────────────────────────────────────────────────
+# Topology (maximum parallelism):
+#
+#   preflight ─┬─ backend-windows ── tauri-windows ──┐
+#              ├─ backend-macos  ── tauri-macos   ──├─ publish
+#              ├─ backend-linux  ── tauri-linux   ──┤
+#              ├─ build-frontend ────────────────────┤
+#              └─ audit ────────────────────────────-┘
+#
+# Each Tauri job starts the moment its OWN sidecar + the shared
+# frontend artifact are ready — it never waits for other platforms.
+# Audits run fully in parallel and only gate the final publish.
+# ────────────────────────────────────────────────────────────
+
 jobs:
+  # ── Gate ──────────────────────────────────────────────────
   release-preflight:
     name: Release preflight
     runs-on: ubuntu-latest
@@ -32,27 +47,11 @@ jobs:
       - name: Verify tag matches project versions
         run: npm run version:check -- "${{ github.ref_name }}"
 
-  build-backend:
-    name: Build backend sidecar (${{ matrix.name }})
+  # ── Shared frontend build (platform-agnostic) ────────────
+  build-frontend:
+    name: Build frontend
     needs: release-preflight
-    runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Windows
-            platform: windows
-            os: windows-latest
-            experimental: false
-          - name: Linux
-            platform: linux
-            os: ubuntu-latest
-            experimental: false
-          - name: macOS
-            platform: macos
-            os: macos-latest
-            experimental: false
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -63,136 +62,33 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - uses: astral-sh/setup-uv@v8.1.0
-        with:
-          enable-cache: false
+      - name: Build frontend
+        run: npm run build
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install backend dependencies
-        run: cd backend && uv sync --dev --frozen
-
-      - name: Audit backend dependencies
-        run: cd backend && uv run --with pip-audit pip-audit
-
-      - name: Install Playwright Chromium runtime (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $env:PLAYWRIGHT_BROWSERS_PATH = "..\src-tauri\resources\bin\ms-playwright"
-          cd backend
-          uv run python -m playwright install chromium
-
-      - name: Install Playwright Chromium runtime (Unix)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PLAYWRIGHT_BROWSERS_PATH="../src-tauri/resources/bin/ms-playwright"
-          cd backend
-          uv run python -m playwright install chromium
-
-      - name: Build sidecar with canonical script
-        run: npm run build:sidecar
-
-      - name: Package mandatory runtime pack OTA asset
-        run: npm run build:runtime-pack
-
-      - name: List sidecar output (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          Write-Host "Sidecar directory:"
-          Get-ChildItem -Path src-tauri\resources\backend\ -Recurse |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
-          $backendTotal = (Get-ChildItem -Path src-tauri\resources\backend\ -Recurse -File |
-            Measure-Object -Property Length -Sum).Sum / 1MB
-          $runtimeTotal = (Get-ChildItem -Path src-tauri\resources\sidecar-internal\ -Recurse -File |
-            Measure-Object -Property Length -Sum).Sum / 1MB
-          Write-Host "Sidecar backend size: $([math]::Round($backendTotal, 1)) MB"
-          Write-Host "Sidecar runtime size: $([math]::Round($runtimeTotal, 1)) MB"
-          Get-Content src-tauri\resources\backend\sidecar-manifest.json
-
-      - name: List sidecar output (Unix)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          find src-tauri/resources/backend -maxdepth 3 -type f -print
-          backend_kb="$(du -sk src-tauri/resources/backend | awk '{print $1}')"
-          runtime_kb="$(du -sk src-tauri/resources/sidecar-internal | awk '{print $1}')"
-          echo "Sidecar backend size: $((backend_kb / 1024)) MB"
-          echo "Sidecar runtime size: $((runtime_kb / 1024)) MB"
-          cat src-tauri/resources/backend/sidecar-manifest.json
-
-      - name: Smoke sidecar startup
-        env:
-          JHM_VECTOR_RUNTIME_REQUIRED: "1"
-        run: npm run smoke:sidecar
-
-      - name: Upload backend sidecar artifact
+      - name: Upload frontend dist
         uses: actions/upload-artifact@v7
         with:
-          name: backend-sidecar-${{ matrix.platform }}
-          path: |
-            src-tauri/resources/backend/
-            src-tauri/resources/sidecar-internal/
+          name: frontend-dist
+          path: dist/
           retention-days: 1
 
-      - name: Upload OTA runtime assets
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-assets-runtime-${{ matrix.platform }}
-          path: release-assets/
-          retention-days: 1
-
-  build-tauri:
-    name: Build Tauri installer (${{ matrix.name }})
-    needs: build-backend
-    runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Windows
-            platform: windows
-            os: windows-latest
-            package_script: package:windows
-            experimental: false
-          - name: Linux
-            platform: linux
-            os: ubuntu-latest
-            package_script: package:linux
-            experimental: false
-          - name: macOS
-            platform: macos
-            os: macos-latest
-            package_script: package:macos
-            experimental: false
+  # ── Audits (parallel, off-critical-path) ─────────────────
+  audit:
+    name: Dependency audit
+    needs: release-preflight
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v6
-        if: matrix.platform != 'windows'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      - uses: actions/setup-node@v6
-        if: matrix.platform == 'windows'
-        with:
-          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install frontend dependencies
         run: npm ci
@@ -241,24 +137,261 @@ jobs:
             Write-Warning "npm audit exited with $auditExit but reported no moderate/high/critical vulnerabilities. Continuing."
           }
 
-      - name: Install Tauri Linux system dependencies
-        if: matrix.platform == 'linux'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: false
+
+      - name: Audit backend dependencies
+        run: cd backend && uv sync --dev --frozen && uv run --with pip-audit pip-audit
+
+  # ── Backend sidecars (one per platform) ──────────────────
+  backend-windows:
+    name: Build backend sidecar (Windows)
+    needs: release-preflight
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install backend dependencies
+        run: cd backend && uv sync --dev --frozen
+
+      - name: Install Playwright Chromium runtime
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            pkg-config \
-            patchelf \
-            wget
+          $ErrorActionPreference = "Stop"
+          $env:PLAYWRIGHT_BROWSERS_PATH = "..\src-tauri\resources\bin\ms-playwright"
+          cd backend
+          uv run python -m playwright install chromium
+
+      - name: Build sidecar with canonical script
+        run: npm run build:sidecar
+
+      - name: Package mandatory runtime pack OTA asset
+        run: npm run build:runtime-pack
+
+      - name: List sidecar output
+        shell: pwsh
+        run: |
+          Write-Host "Sidecar directory:"
+          Get-ChildItem -Path src-tauri\resources\backend\ -Recurse |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+          $backendTotal = (Get-ChildItem -Path src-tauri\resources\backend\ -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum / 1MB
+          $runtimeTotal = (Get-ChildItem -Path src-tauri\resources\sidecar-internal\ -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum / 1MB
+          Write-Host "Sidecar backend size: $([math]::Round($backendTotal, 1)) MB"
+          Write-Host "Sidecar runtime size: $([math]::Round($runtimeTotal, 1)) MB"
+          Get-Content src-tauri\resources\backend\sidecar-manifest.json
+
+      - name: Smoke sidecar startup
+        env:
+          JHM_VECTOR_RUNTIME_REQUIRED: "1"
+        run: npm run smoke:sidecar
+
+      - name: Upload backend sidecar artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-sidecar-windows
+          path: |
+            src-tauri/resources/backend/
+            src-tauri/resources/sidecar-internal/
+          retention-days: 1
+
+      - name: Upload OTA runtime assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-runtime-windows
+          path: release-assets/
+          retention-days: 1
+
+  backend-macos:
+    name: Build backend sidecar (macOS)
+    needs: release-preflight
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install backend dependencies
+        run: cd backend && uv sync --dev --frozen
+
+      - name: Install Playwright Chromium runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PLAYWRIGHT_BROWSERS_PATH="../src-tauri/resources/bin/ms-playwright"
+          cd backend
+          uv run python -m playwright install chromium
+
+      - name: Build sidecar with canonical script
+        run: npm run build:sidecar
+
+      - name: Package mandatory runtime pack OTA asset
+        run: npm run build:runtime-pack
+
+      - name: List sidecar output
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src-tauri/resources/backend -maxdepth 3 -type f -print
+          backend_kb="$(du -sk src-tauri/resources/backend | awk '{print $1}')"
+          runtime_kb="$(du -sk src-tauri/resources/sidecar-internal | awk '{print $1}')"
+          echo "Sidecar backend size: $((backend_kb / 1024)) MB"
+          echo "Sidecar runtime size: $((runtime_kb / 1024)) MB"
+          cat src-tauri/resources/backend/sidecar-manifest.json
+
+      - name: Smoke sidecar startup
+        env:
+          JHM_VECTOR_RUNTIME_REQUIRED: "1"
+        run: npm run smoke:sidecar
+
+      - name: Upload backend sidecar artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-sidecar-macos
+          path: |
+            src-tauri/resources/backend/
+            src-tauri/resources/sidecar-internal/
+          retention-days: 1
+
+      - name: Upload OTA runtime assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-runtime-macos
+          path: release-assets/
+          retention-days: 1
+
+  backend-linux:
+    name: Build backend sidecar (Linux)
+    needs: release-preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install backend dependencies
+        run: cd backend && uv sync --dev --frozen
+
+      - name: Install Playwright Chromium runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PLAYWRIGHT_BROWSERS_PATH="../src-tauri/resources/bin/ms-playwright"
+          cd backend
+          uv run python -m playwright install chromium
+
+      - name: Build sidecar with canonical script
+        run: npm run build:sidecar
+
+      - name: Package mandatory runtime pack OTA asset
+        run: npm run build:runtime-pack
+
+      - name: List sidecar output
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src-tauri/resources/backend -maxdepth 3 -type f -print
+          backend_kb="$(du -sk src-tauri/resources/backend | awk '{print $1}')"
+          runtime_kb="$(du -sk src-tauri/resources/sidecar-internal | awk '{print $1}')"
+          echo "Sidecar backend size: $((backend_kb / 1024)) MB"
+          echo "Sidecar runtime size: $((runtime_kb / 1024)) MB"
+          cat src-tauri/resources/backend/sidecar-manifest.json
+
+      - name: Smoke sidecar startup
+        env:
+          JHM_VECTOR_RUNTIME_REQUIRED: "1"
+        run: npm run smoke:sidecar
+
+      - name: Upload backend sidecar artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-sidecar-linux
+          path: |
+            src-tauri/resources/backend/
+            src-tauri/resources/sidecar-internal/
+          retention-days: 1
+
+      - name: Upload OTA runtime assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-runtime-linux
+          path: release-assets/
+          retention-days: 1
+
+  # ── Tauri installers (each waits only for its own sidecar + frontend) ──
+
+  tauri-windows:
+    name: Build Tauri installer (Windows)
+    needs: [backend-windows, build-frontend]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -269,36 +402,19 @@ jobs:
       - name: Download backend sidecar
         uses: actions/download-artifact@v8
         with:
-          name: backend-sidecar-${{ matrix.platform }}
+          name: backend-sidecar-windows
           path: src-tauri/resources/
 
-      - name: Prepare downloaded sidecar resources for Rust tests (Unix)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          triple="$(rustc -vV | awk '/host:/ {print $2}')"
-          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
-          mkdir -p src-tauri/resources/sidecar-internal
-          touch src-tauri/resources/sidecar-internal/.release-placeholder
-          if [ ! -f "$sidecar" ]; then
-            find src-tauri/resources -maxdepth 3 -type f -print
-            echo "Sidecar not found at $sidecar" >&2
-            exit 1
-          fi
-          chmod +x "$sidecar"
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: dist/
 
       - name: Run Rust unit tests
         run: cd src-tauri && cargo test --lib
 
-      - name: Verify project versions
-        run: npm run version:check -- "${{ github.ref_name }}"
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Verify sidecar exists (Windows)
-        if: matrix.platform == 'windows'
+      - name: Verify sidecar exists
         shell: pwsh
         run: |
           $triple = (rustc -vV | Select-String "host:").ToString().Split()[1].Trim()
@@ -316,44 +432,6 @@ jobs:
           Write-Host "Sidecar verified: $sidecar ($(( Get-Item $sidecar ).Length / 1MB) MB)"
           Write-Host "The mandatory runtime pack is shipped as a single OTA asset, not bundled into the installer."
 
-      - name: Verify sidecar exists (Unix)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          triple="$(rustc -vV | awk '/host:/ {print $2}')"
-          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
-          runtime="src-tauri/resources/sidecar-internal/base_library.zip"
-          layout="$(python -c 'import json; print(json.load(open("src-tauri/resources/backend/sidecar-manifest.json")).get("sidecarLayout", "onedir"))')"
-          mkdir -p src-tauri/resources/sidecar-internal
-          touch src-tauri/resources/sidecar-internal/.release-placeholder
-          if [ ! -f "$sidecar" ]; then
-            echo "Sidecar not found at $sidecar" >&2
-            exit 1
-          fi
-          if [ "$layout" = "onedir" ] && [ ! -f "$runtime" ]; then
-            echo "Sidecar runtime not found at $runtime" >&2
-            exit 1
-          fi
-          if [ ! -f "src-tauri/resources/backend/sidecar-manifest.json" ]; then
-            echo "Sidecar manifest not found." >&2
-            exit 1
-          fi
-          chmod +x "$sidecar"
-          echo "Sidecar verified: $sidecar ($(du -h "$sidecar" | awk '{print $1}'))"
-          echo "The mandatory runtime pack is shipped as a single OTA asset, not bundled into the installer."
-
-      - name: Prepare macOS sidecar permissions
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          set -euo pipefail
-          triple="$(rustc -vV | awk '/host:/ {print $2}')"
-          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
-          chmod +x "$sidecar"
-          xattr -cr src-tauri/resources/backend src-tauri/resources/sidecar-internal || true
-          codesign --force --sign - --entitlements src-tauri/macos-entitlements.plist "$sidecar"
-
       - name: Verify updater signing secrets
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -362,7 +440,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-            echo "Missing Tauri updater signing secrets. Set TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD before tagging a release." >&2
+            echo "Missing Tauri updater signing secrets." >&2
             exit 1
           fi
 
@@ -370,10 +448,12 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run ${{ matrix.package_script }}
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: npm run package:windows
 
       - name: Smoke installed Windows package
-        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -388,7 +468,6 @@ jobs:
           npm run smoke:windows-update
 
       - name: Smoke Windows update over previous stable
-        if: matrix.platform == 'windows'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -434,7 +513,6 @@ jobs:
           npm run smoke:windows-update
 
       - name: Smoke packaged Windows sidecar
-        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -445,8 +523,146 @@ jobs:
           }
           npm run smoke:sidecar
 
+      - name: Collect release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseDir = "release-assets"
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+          $assets = Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -File -Include "*.exe", "*.msi", "*.sig" |
+            Sort-Object Name
+          $installers = $assets | Where-Object { $_.Extension -in ".exe", ".msi" }
+          if (-not $installers) {
+            throw "No Windows installer artifacts were produced."
+          }
+
+          $lines = foreach ($asset in $assets) {
+            Copy-Item $asset.FullName -Destination $releaseDir -Force
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $asset.FullName).Hash.ToLowerInvariant()
+            "$hash  $($asset.Name)"
+          }
+          $lines | Set-Content -Path "$releaseDir\SHA256SUMS-windows.txt" -Encoding utf8
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-windows
+          path: release-assets/
+          retention-days: 1
+
+  tauri-macos:
+    name: Build Tauri installer (macOS)
+    needs: [backend-macos, build-frontend]
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Download backend sidecar
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-sidecar-macos
+          path: src-tauri/resources/
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Prepare sidecar for Rust tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="$(rustc -vV | awk '/host:/ {print $2}')"
+          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
+          mkdir -p src-tauri/resources/sidecar-internal
+          touch src-tauri/resources/sidecar-internal/.release-placeholder
+          if [ ! -f "$sidecar" ]; then
+            find src-tauri/resources -maxdepth 3 -type f -print
+            echo "Sidecar not found at $sidecar" >&2
+            exit 1
+          fi
+          chmod +x "$sidecar"
+
+      - name: Run Rust unit tests
+        run: cd src-tauri && cargo test --lib
+
+      - name: Verify sidecar exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="$(rustc -vV | awk '/host:/ {print $2}')"
+          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
+          runtime="src-tauri/resources/sidecar-internal/base_library.zip"
+          layout="$(python -c 'import json; print(json.load(open("src-tauri/resources/backend/sidecar-manifest.json")).get("sidecarLayout", "onedir"))')"
+          mkdir -p src-tauri/resources/sidecar-internal
+          touch src-tauri/resources/sidecar-internal/.release-placeholder
+          if [ ! -f "$sidecar" ]; then
+            echo "Sidecar not found at $sidecar" >&2
+            exit 1
+          fi
+          if [ "$layout" = "onedir" ] && [ ! -f "$runtime" ]; then
+            echo "Sidecar runtime not found at $runtime" >&2
+            exit 1
+          fi
+          if [ ! -f "src-tauri/resources/backend/sidecar-manifest.json" ]; then
+            echo "Sidecar manifest not found." >&2
+            exit 1
+          fi
+          chmod +x "$sidecar"
+          echo "Sidecar verified: $sidecar ($(du -h "$sidecar" | awk '{print $1}'))"
+          echo "The mandatory runtime pack is shipped as a single OTA asset, not bundled into the installer."
+
+      - name: Prepare macOS sidecar permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="$(rustc -vV | awk '/host:/ {print $2}')"
+          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
+          chmod +x "$sidecar"
+          xattr -cr src-tauri/resources/backend src-tauri/resources/sidecar-internal || true
+          codesign --force --sign - --entitlements src-tauri/macos-entitlements.plist "$sidecar"
+
+      - name: Verify updater signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "Missing Tauri updater signing secrets." >&2
+            exit 1
+          fi
+
+      - name: Build Tauri installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: npm run package:macos
+
       - name: Smoke packaged macOS sidecar
-        if: matrix.platform == 'macos'
         shell: bash
         run: |
           set -euo pipefail
@@ -474,48 +690,21 @@ jobs:
           export JHM_SIDECAR_PATH="$sidecar_path"
           npm run smoke:sidecar
 
-      - name: Collect release assets (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $releaseDir = "release-assets"
-          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
-          $assets = Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -File -Include "*.exe", "*.msi", "*.sig" |
-            Sort-Object Name
-          $installers = $assets | Where-Object { $_.Extension -in ".exe", ".msi" }
-          if (-not $installers) {
-            throw "No Windows installer artifacts were produced."
-          }
-
-          $lines = foreach ($asset in $assets) {
-            Copy-Item $asset.FullName -Destination $releaseDir -Force
-            $hash = (Get-FileHash -Algorithm SHA256 -Path $asset.FullName).Hash.ToLowerInvariant()
-            "$hash  $($asset.Name)"
-          }
-          $lines | Set-Content -Path "$releaseDir\SHA256SUMS-windows.txt" -Encoding utf8
-
-      - name: Collect release assets (Unix)
-        if: matrix.platform != 'windows'
+      - name: Collect release assets
         shell: bash
         run: |
           set -euo pipefail
           release_dir="release-assets"
           mkdir -p "$release_dir"
           asset_list="$release_dir/assets.txt"
-
-          if [ "${{ matrix.platform }}" = "linux" ]; then
-            find src-tauri/target/release/bundle -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.sig" \) | sort > "$asset_list"
-          else
-            find src-tauri/target/release/bundle -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" \) | sort > "$asset_list"
-          fi
+          find src-tauri/target/release/bundle -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" \) | sort > "$asset_list"
 
           if [ ! -s "$asset_list" ]; then
-            echo "No ${{ matrix.name }} installer artifacts were produced." >&2
+            echo "No macOS installer artifacts were produced." >&2
             exit 1
           fi
 
-          checksum_file="$release_dir/SHA256SUMS-${{ matrix.platform }}.txt"
+          checksum_file="$release_dir/SHA256SUMS-macos.txt"
           : > "$checksum_file"
           while IFS= read -r asset; do
             cp "$asset" "$release_dir/"
@@ -526,13 +715,163 @@ jobs:
       - name: Upload release assets
         uses: actions/upload-artifact@v7
         with:
-          name: release-assets-${{ matrix.platform }}
+          name: release-assets-macos
           path: release-assets/
           retention-days: 1
 
+  tauri-linux:
+    name: Build Tauri installer (Linux)
+    needs: [backend-linux, build-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Tauri Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            pkg-config \
+            patchelf \
+            wget
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Download backend sidecar
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-sidecar-linux
+          path: src-tauri/resources/
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Prepare sidecar for Rust tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="$(rustc -vV | awk '/host:/ {print $2}')"
+          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
+          mkdir -p src-tauri/resources/sidecar-internal
+          touch src-tauri/resources/sidecar-internal/.release-placeholder
+          if [ ! -f "$sidecar" ]; then
+            find src-tauri/resources -maxdepth 3 -type f -print
+            echo "Sidecar not found at $sidecar" >&2
+            exit 1
+          fi
+          chmod +x "$sidecar"
+
+      - name: Run Rust unit tests
+        run: cd src-tauri && cargo test --lib
+
+      - name: Verify sidecar exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="$(rustc -vV | awk '/host:/ {print $2}')"
+          sidecar="src-tauri/resources/backend/jhm-sidecar-next-${triple}"
+          runtime="src-tauri/resources/sidecar-internal/base_library.zip"
+          layout="$(python -c 'import json; print(json.load(open("src-tauri/resources/backend/sidecar-manifest.json")).get("sidecarLayout", "onedir"))')"
+          mkdir -p src-tauri/resources/sidecar-internal
+          touch src-tauri/resources/sidecar-internal/.release-placeholder
+          if [ ! -f "$sidecar" ]; then
+            echo "Sidecar not found at $sidecar" >&2
+            exit 1
+          fi
+          if [ "$layout" = "onedir" ] && [ ! -f "$runtime" ]; then
+            echo "Sidecar runtime not found at $runtime" >&2
+            exit 1
+          fi
+          if [ ! -f "src-tauri/resources/backend/sidecar-manifest.json" ]; then
+            echo "Sidecar manifest not found." >&2
+            exit 1
+          fi
+          chmod +x "$sidecar"
+          echo "Sidecar verified: $sidecar ($(du -h "$sidecar" | awk '{print $1}'))"
+          echo "The mandatory runtime pack is shipped as a single OTA asset, not bundled into the installer."
+
+      - name: Verify updater signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "Missing Tauri updater signing secrets." >&2
+            exit 1
+          fi
+
+      - name: Build Tauri installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: npm run package:linux
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="release-assets"
+          mkdir -p "$release_dir"
+          asset_list="$release_dir/assets.txt"
+          find src-tauri/target/release/bundle -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.sig" \) | sort > "$asset_list"
+
+          if [ ! -s "$asset_list" ]; then
+            echo "No Linux installer artifacts were produced." >&2
+            exit 1
+          fi
+
+          checksum_file="$release_dir/SHA256SUMS-linux.txt"
+          : > "$checksum_file"
+          while IFS= read -r asset; do
+            cp "$asset" "$release_dir/"
+            shasum -a 256 "$asset" | awk -v name="$(basename "$asset")" '{print $1 "  " name}' >> "$checksum_file"
+          done < "$asset_list"
+          rm "$asset_list"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-linux
+          path: release-assets/
+          retention-days: 1
+
+  # ── Publish ──────────────────────────────────────────────
   publish-release:
     name: Publish GitHub release
-    needs: build-tauri
+    needs: [tauri-windows, tauri-macos, tauri-linux, audit]
     runs-on: ubuntu-latest
     permissions:
       contents: write
