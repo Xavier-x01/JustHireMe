@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
 
+from api.routers import settings as settings_router
 from data.sqlite.settings import validate_setting
 
 
@@ -79,3 +81,78 @@ def test_invalid_setting_payload_raises(tmp_path):
     )
     assert result.returncode != 0
     assert "between 1 and 12" in result.stderr
+
+
+def test_deepseek_key_probe_uses_deepseek_models_endpoint(monkeypatch):
+    import httpx
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, headers=None):
+            calls.append((url, headers))
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    result = asyncio.run(settings_router.probe_provider_key("deepseek", "sk-deepseek-test"))
+
+    assert result["status"] == "ok"
+    assert calls == [
+        (
+            "https://api.deepseek.com/models",
+            {"Authorization": "Bearer sk-deepseek-test"},
+        )
+    ]
+
+
+def test_validate_provider_settings_uses_pending_deepseek_key(monkeypatch):
+    from llm import _ENV_NAMES
+
+    for env_name in {*_ENV_NAMES.values(), "GOOGLE_API_KEY"}:
+        monkeypatch.delenv(env_name, raising=False)
+
+    calls = {}
+
+    class FakeSettings:
+        def get_settings(self):
+            return {
+                "gemini_api_key": "saved-gemini-key",
+                "deepseek_api_key": "",
+            }
+
+    class FakeRepo:
+        settings = FakeSettings()
+
+    async def fake_probe(provider, key, settings):
+        calls[provider] = key
+        return {"status": "ok", "latency_ms": 1}
+
+    monkeypatch.setattr(settings_router, "probe_provider_key", fake_probe)
+
+    result = asyncio.run(
+        settings_router.validate_provider_settings(
+            FakeRepo(),
+            {
+                "llm_provider": "deepseek",
+                "deepseek_api_key": "typed-deepseek-key",
+                "gemini_api_key": settings_router.MASK,
+            },
+        )
+    )
+
+    assert calls["deepseek"] == "typed-deepseek-key"
+    assert calls["gemini"] == "saved-gemini-key"
+    assert result["deepseek"]["status"] == "ok"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { settingsApi } from "../../../api/settings";
 import type { Cfg } from "./shared";
 import { ApiKeyInput, GLOBAL_MODEL_FIELD, KEY_FIELD, ModelChips, ProviderPills, SectionLabel } from "./shared";
 import type { ApiFetch } from "../../../types";
@@ -26,7 +27,7 @@ export function GlobalSettings({ cfg, set, onChange, prov, api }: { cfg: Cfg; se
     setChecking(true);
     setErr(null);
     try {
-      const r = await api("/api/v1/settings/validate");
+      const r = await settingsApi.validate(api, cfg);
       if (!r.ok) throw new Error(`Server returned ${r.status}`);
       setResults(await r.json());
     } catch (e) {
@@ -39,13 +40,7 @@ export function GlobalSettings({ cfg, set, onChange, prov, api }: { cfg: Cfg; se
     setLoadingModels(true);
     setErr(null);
     try {
-      const save = await api("/api/v1/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cfg),
-      });
-      if (!save.ok) throw new Error(`Could not save settings (${save.status})`);
-      const r = await api(`/api/v1/settings/models/${prov}`);
+      const r = await settingsApi.models(api, prov, cfg);
       const data = await r.json();
       if (!r.ok) throw new Error(`Server returned ${r.status}`);
       if (data.error === "not_configured") {
@@ -77,6 +72,14 @@ export function GlobalSettings({ cfg, set, onChange, prov, api }: { cfg: Cfg; se
     not_configured: "not set",
     unchecked: "unchecked",
   }[status]);
+
+  const resultEntries = results
+    ? Object.entries(results).sort(([left], [right]) => {
+      if (left === prov) return -1;
+      if (right === prov) return 1;
+      return left.localeCompare(right);
+    })
+    : [];
 
   return (
     <>
@@ -123,7 +126,7 @@ export function GlobalSettings({ cfg, set, onChange, prov, api }: { cfg: Cfg; se
                 {err && <div style={{ fontSize: 12, color: "var(--bad)" }}>{err}</div>}
                 {results && (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                    {Object.entries(results).map(([provider, result]) => (
+                    {resultEntries.map(([provider, result]) => (
                       <div key={provider} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 10px", borderRadius: 9, border: "1px solid var(--line)", background: "var(--card)" }}>
                         <span style={{ fontSize: 12, fontWeight: 700 }}>{provider}</span>
                         <span className="mono" style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 999, ...badgeStyle(result.status) }}>

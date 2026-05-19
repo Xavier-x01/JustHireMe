@@ -21,6 +21,11 @@ describe("Settings UI contracts", () => {
     expect(globalPanel).toContain("openai");
   });
 
+  it("validates provider keys against the current form values", () => {
+    expect(globalPanel).toContain("settingsApi.validate(api, cfg)");
+    expect(globalPanel).toContain("settingsApi.models(api, prov, cfg)");
+  });
+
   it("keeps discovery scan limit fields visible", () => {
     expect(discoveryPanel).toContain("x_max_requests_per_scan");
     expect(discoveryPanel).toContain("free_source_max_requests");

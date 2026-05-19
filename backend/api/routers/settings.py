@@ -72,6 +72,12 @@ async def probe_provider_key(provider: str, key: str, settings: dict | None = No
                     headers={"Authorization": f"Bearer {key}"},
                 )
                 status = "ok" if response.status_code == 200 else "invalid_key" if response.status_code in {401, 403} else "unreachable"
+            elif provider == "deepseek":
+                response = await client.get(
+                    "https://api.deepseek.com/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                status = "ok" if response.status_code == 200 else "invalid_key" if response.status_code in {401, 403} else "unreachable"
             elif provider in _OPENAI_COMPAT_BASE_URLS:
                 response = await client.get(
                     f"{_OPENAI_COMPAT_BASE_URLS[provider].rstrip('/')}/models",
@@ -154,6 +160,55 @@ async def list_provider_models(provider: str, key: str, settings: dict | None = 
     return sorted(dict.fromkeys(ids), key=str.lower)
 
 
+def _settings_with_incoming(repo: Repository, incoming: dict | None) -> dict:
+    cfg = repo.settings.get_settings()
+    if not incoming:
+        return cfg
+    old = cfg
+    cfg = {**cfg, **{key: "" if value is None else str(value) for key, value in incoming.items()}}
+    for key in sensitive_keys(cfg):
+        if cfg.get(key) in LEGACY_MASKS:
+            cfg[key] = old.get(key, "")
+    return cfg
+
+
+def _provider_key(cfg: dict, provider: str) -> str:
+    from llm import _ENV_NAMES, _KEY_NAMES
+
+    key_name = _KEY_NAMES.get(provider, "")
+    return str(
+        cfg.get(key_name)
+        or os.environ.get(_ENV_NAMES.get(provider, ""), "")
+        or (os.environ.get("GOOGLE_API_KEY", "") if provider == "gemini" else "")
+        or ""
+    ).strip()
+
+
+async def validate_provider_settings(repo: Repository, incoming: dict | None = None) -> dict:
+    from llm import _KEY_NAMES, _OPENAI_COMPAT_BASE_URLS
+
+    cfg = _settings_with_incoming(repo, incoming)
+    probed = {"anthropic", "gemini", "openai", "groq", "deepseek", "azure", *_OPENAI_COMPAT_BASE_URLS}
+    providers = [
+        "anthropic",
+        "gemini",
+        "openai",
+        "groq",
+        *[provider for provider in _KEY_NAMES if provider not in {"anthropic", "gemini", "openai", "groq"}],
+    ]
+
+    async def one(provider: str):
+        key = _provider_key(cfg, provider)
+        if not key:
+            return provider, {"status": "not_configured", "latency_ms": 0}
+        if provider not in probed:
+            return provider, {"status": "unchecked", "latency_ms": 0}
+        return provider, await probe_provider_key(provider, key, cfg)
+
+    pairs = await asyncio.gather(*(one(provider) for provider in providers))
+    return {provider: result for provider, result in pairs}
+
+
 def create_router(scheduler: AsyncIOScheduler, ghost_tick) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["settings"])
 
@@ -176,53 +231,16 @@ def create_router(scheduler: AsyncIOScheduler, ghost_tick) -> APIRouter:
 
     @router.get("/settings/validate")
     async def validate_settings(repo: Repository = Depends(get_repository)):
-        from llm import _ENV_NAMES, _KEY_NAMES, _OPENAI_COMPAT_BASE_URLS
+        return await validate_provider_settings(repo)
 
-        cfg = repo.settings.get_settings()
-        probed = {"anthropic", "gemini", "openai", "groq", "azure", *_OPENAI_COMPAT_BASE_URLS}
-        providers = [
-            "anthropic",
-            "gemini",
-            "openai",
-            "groq",
-            *[provider for provider in _KEY_NAMES if provider not in {"anthropic", "gemini", "openai", "groq"}],
-        ]
-
-        async def one(provider: str):
-            key_name = _KEY_NAMES.get(provider, "")
-            key = str(
-                cfg.get(key_name)
-                or os.environ.get(_ENV_NAMES.get(provider, ""), "")
-                or (os.environ.get("GOOGLE_API_KEY", "") if provider == "gemini" else "")
-                or ""
-            ).strip()
-            if not key:
-                return provider, {"status": "not_configured", "latency_ms": 0}
-            if provider not in probed:
-                return provider, {"status": "unchecked", "latency_ms": 0}
-            return provider, await probe_provider_key(provider, key, cfg)
-
-        pairs = await asyncio.gather(*(one(provider) for provider in providers))
-        return {provider: result for provider, result in pairs}
+    @router.post("/settings/validate")
+    async def validate_pending_settings(body: SettingsBody, repo: Repository = Depends(get_repository)):
+        return await validate_provider_settings(repo, body.model_dump())
 
     async def _provider_models_response(provider: str, incoming: dict | None, repo: Repository):
-        from llm import _ENV_NAMES, _KEY_NAMES
-
         provider = provider.strip().lower()
-        cfg = repo.settings.get_settings()
-        if incoming:
-            old = cfg
-            cfg = {**cfg, **{key: "" if value is None else str(value) for key, value in incoming.items()}}
-            for key in sensitive_keys(cfg):
-                if cfg.get(key) in LEGACY_MASKS:
-                    cfg[key] = old.get(key, "")
-        key_name = _KEY_NAMES.get(provider, "")
-        key = str(
-            cfg.get(key_name)
-            or os.environ.get(_ENV_NAMES.get(provider, ""), "")
-            or (os.environ.get("GOOGLE_API_KEY", "") if provider == "gemini" else "")
-            or ""
-        ).strip()
+        cfg = _settings_with_incoming(repo, incoming)
+        key = _provider_key(cfg, provider)
         if provider == "ollama":
             return {"provider": provider, "models": []}
         if not key:
