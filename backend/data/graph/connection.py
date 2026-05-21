@@ -315,10 +315,12 @@ def _ensure_candidate_for_profile() -> str:
     )
     candidate_id = "profile-default"
     if has_profile_evidence:
-        execute_query(
-            "CREATE (:Candidate {id: $id, n: $n, s: $s})",
-            {"id": candidate_id, "n": "Profile", "s": "Local profile evidence root"},
-        )
+        params = {"id": candidate_id, "n": "Profile", "s": "Local profile evidence root"}
+        result = execute_query("MATCH (c:Candidate {id: $id}) RETURN c.id LIMIT 1", params)
+        if result is not None and result.has_next():
+            execute_query("MATCH (c:Candidate {id: $id}) SET c.n = $n, c.s = $s", params)
+        else:
+            execute_query("CREATE (:Candidate {id: $id, n: $n, s: $s})", params)
     return candidate_id
 
 
@@ -326,20 +328,14 @@ def _ensure_skill(name: str, category: str) -> str:
     clean = str(name or "").strip()
     skill_id = md5(clean.encode()).hexdigest()[:12]
     try:
-        execute_query(
-            "CREATE (:Skill {id: $id, n: $n, cat: $cat})",
-            {"id": skill_id, "n": clean, "cat": category},
-        )
+        params = {"id": skill_id, "n": clean, "cat": category}
+        result = execute_query("MATCH (s:Skill {id: $id}) RETURN s.id LIMIT 1", params)
+        if result is not None and result.has_next():
+            execute_query("MATCH (s:Skill {id: $id}) SET s.n = $n, s.cat = $cat", params)
+        else:
+            execute_query("CREATE (:Skill {id: $id, n: $n, cat: $cat})", params)
     except Exception as exc:
         logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/connection.py:_ensure_skill: %s', exc)
-        try:
-            execute_query(
-                "MATCH (s:Skill {id: $id}) SET s.n = $n, s.cat = $cat",
-                {"id": skill_id, "n": clean, "cat": category},
-            )
-        except Exception as log_exc:
-            logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/connection.py:_ensure_skill: %s', log_exc)
-            pass
     return skill_id
 
 

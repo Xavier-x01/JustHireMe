@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entryTitle, mergeProfileWithGraphFallback, normalizeProfileResponse, profileDeleteKey, profileDeletePath, profileFromGraphStats, removeProfileItem } from "./profileUtils";
+import { applyProfileDeleteMarkers, entryTitle, mergeProfileWithGraphFallback, normalizeProfileResponse, profileDeleteKey, profileDeletePath, profileFromGraphStats, profileHasDeleteMarker, removeProfileItem } from "./profileUtils";
 
 const fieldText = (item: unknown, key: string): string =>
   item && typeof item === "object" && key in item
@@ -79,6 +79,14 @@ describe("graph profile fallback", () => {
     expect(profile.projects.length).toBe(1);
   });
 
+  it("can treat loaded profile buckets as authoritative during live refreshes", () => {
+    const profile = mergeProfileWithGraphFallback({ n: "Vasu", skills: [], projects: [], exp: [] }, stats, { fillEmptyBuckets: false });
+
+    expect(profile.n).toBe("Vasu");
+    expect(profile.skills).toEqual([]);
+    expect(profile.projects).toEqual([]);
+  });
+
   it("derives profile rows from vector-backed embedding points when graph links are missing", () => {
     const profile = mergeProfileWithGraphFallback(
       { n: "Vasu", s: "AI engineer", skills: [], projects: [], exp: [] },
@@ -136,5 +144,19 @@ describe("removeProfileItem", () => {
     expect(removeProfileItem(profile, "education", "B.Tech%20%2F%20MBA").education).toEqual(["MSc"]);
     expect(removeProfileItem(profile, "certification", "AWS").certifications).toEqual([]);
     expect(removeProfileItem(profile, "achievement", "Shipped").achievements).toEqual([]);
+  });
+
+  it("keeps local delete tombstones applied while graph stats are stale", () => {
+    const profile = normalizeProfileResponse({
+      skills: [{ id: "fastapi", n: "FastAPI", cat: "backend" }, { id: "react", n: "React", cat: "frontend" }],
+      projects: [{ id: "api", title: "API", stack: ["FastAPI"], repo: "", impact: "" }],
+    });
+    const marker = { type: "skill", id: "fastapi" };
+
+    const next = applyProfileDeleteMarkers(profile, [marker]);
+
+    expect(profileHasDeleteMarker(profile, marker)).toBe(true);
+    expect(next.skills.map((skill) => fieldText(skill, "n"))).toEqual(["React"]);
+    expect(next.projects.map((project) => fieldText(project, "title"))).toEqual(["API"]);
   });
 });

@@ -4,6 +4,56 @@ from profile.service import ProfileService
 from models.schema import C, S, E, P
 
 
+def test_resume_ingestor_put_node_updates_existing_without_duplicate_create(monkeypatch):
+    from profile import ingestor
+    from data.graph import connection
+
+    calls = []
+
+    class ExistingResult:
+        def has_next(self):
+            return True
+
+        def get_next(self):
+            return ["skill-1"]
+
+    def fake_execute(query, params=None):
+        calls.append((query, params))
+        if " RETURN " in query:
+            return ExistingResult()
+        return None
+
+    monkeypatch.setattr(connection, "execute_query", fake_execute)
+
+    ingestor._put_node("Skill", {"id": "skill-1", "n": "Python", "cat": "general"})
+
+    assert any(" SET " in query for query, _params in calls)
+    assert not any(query.startswith("CREATE") for query, _params in calls)
+
+
+def test_resume_ingestor_put_node_creates_missing_node(monkeypatch):
+    from profile import ingestor
+    from data.graph import connection
+
+    calls = []
+
+    class EmptyResult:
+        def has_next(self):
+            return False
+
+    def fake_execute(query, params=None):
+        calls.append((query, params))
+        if " RETURN " in query:
+            return EmptyResult()
+        return None
+
+    monkeypatch.setattr(connection, "execute_query", fake_execute)
+
+    ingestor._put_node("Skill", {"id": "skill-1", "n": "Python", "cat": "general"})
+
+    assert any(query.startswith("CREATE (:Skill") for query, _params in calls)
+
+
 def test_profile_service_import_profile_data_counts_and_identity(monkeypatch):
     service = ProfileService()
     calls = {"identity": []}

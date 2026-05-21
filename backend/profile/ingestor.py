@@ -28,19 +28,26 @@ def _put_node(tbl: str, props: dict):
     try:
         from data.graph.connection import execute_query
 
+        result = execute_query(f"MATCH (n:{tbl}) WHERE n.{pk} = ${pk} RETURN n.{pk} LIMIT 1", props)
+        if result is not None and result.has_next():
+            if len(props) > 1:
+                sets = ", ".join(f"n.{k} = ${k}" for k in props if k != pk)
+                execute_query(f"MATCH (n:{tbl}) WHERE n.{pk} = ${pk} SET {sets}", props)
+            return
         cols = ", ".join(f"{k}: ${k}" for k in props)
         execute_query(f"CREATE (:{tbl} {{{cols}}})", props)
     except Exception as exc:
-        logging.getLogger(__name__).warning('suppressed exception in backend/profile/ingestor.py:_put_node: %s', exc)
-        try:
-            if len(props) > 1:
+        if "duplicated primary key" in str(exc).lower() and len(props) > 1:
+            try:
                 from data.graph.connection import execute_query
 
                 sets = ", ".join(f"n.{k} = ${k}" for k in props if k != pk)
                 execute_query(f"MATCH (n:{tbl}) WHERE n.{pk} = ${pk} SET {sets}", props)
-        except Exception as log_exc:
-            logging.getLogger(__name__).warning('suppressed exception in backend/profile/ingestor.py:_put_node: %s', log_exc)
-            pass
+                return
+            except Exception as log_exc:
+                logging.getLogger(__name__).warning('suppressed exception in backend/profile/ingestor.py:_put_node: %s', log_exc)
+                return
+        logging.getLogger(__name__).warning('suppressed exception in backend/profile/ingestor.py:_put_node: %s', exc)
 
 
 def _put_rel(a: str, aid: str, b: str, bid: str, rel: str):

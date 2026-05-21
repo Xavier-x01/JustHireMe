@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "../../shared/components/Icon";
 import type { ApiFetch, GraphStats, View } from "../../types";
-import { entryTitle, mergeProfileWithGraphFallback, normalizeProfileResponse, profileDeleteKey, profileDeletePath, removeProfileItem } from "./profileUtils";
+import { applyProfileDeleteMarkers, entryTitle, mergeProfileWithGraphFallback, normalizeProfileResponse, profileDeleteKey, profileDeletePath, profileHasDeleteMarker, removeProfileItem, type ProfileDeleteMarker } from "./profileUtils";
 
 const stackItems = (stack: any): string[] =>
   (Array.isArray(stack) ? stack : String(stack || "").split(","))
@@ -20,13 +20,41 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
   const [activeProfileTab, setActiveProfileTab] = useState<"skills" | "experience" | "projects" | "education" | "certifications" | "achievements">("skills");
   const [expandedProfileList, setExpandedProfileList] = useState(false);
   const [deletingItems, setDeletingItems] = useState<Set<string>>(new Set());
+  const deleteMarkersRef = useRef<ProfileDeleteMarker[]>([]);
+
+  const setDeleteMarkerList = useCallback((markers: ProfileDeleteMarker[]) => {
+    deleteMarkersRef.current = markers;
+  }, []);
+
+  const addDeleteMarker = useCallback((marker: ProfileDeleteMarker) => {
+    const exists = deleteMarkersRef.current.some(item => item.type === marker.type && item.id === marker.id);
+    if (exists) return deleteMarkersRef.current;
+    const next = [...deleteMarkersRef.current, marker];
+    setDeleteMarkerList(next);
+    return next;
+  }, [setDeleteMarkerList]);
+
+  const removeDeleteMarker = useCallback((marker: ProfileDeleteMarker) => {
+    const next = deleteMarkersRef.current.filter(item => item.type !== marker.type || item.id !== marker.id);
+    setDeleteMarkerList(next);
+  }, [setDeleteMarkerList]);
+
+  const applyLocalDeletes = useCallback((nextProfile: unknown, pruneResolved = false) => {
+    const markers = deleteMarkersRef.current;
+    if (!markers.length) return normalizeProfileResponse(nextProfile);
+    const resolved = pruneResolved ? markers.filter(marker => profileHasDeleteMarker(nextProfile, marker)) : markers;
+    if (resolved.length !== markers.length) {
+      setDeleteMarkerList(resolved);
+    }
+    return applyProfileDeleteMarkers(nextProfile, resolved);
+  }, [setDeleteMarkerList]);
 
   const fetchProfile = useCallback(async (options?: { errorPrefix?: string; suppressError?: boolean }) => {
     try {
       const r = await api(`/api/v1/profile`);
       if (!r.ok) throw new Error(`Profile load failed (${r.status})`);
       const data = await r.json();
-      setProfile(mergeProfileWithGraphFallback(data, stats));
+      setProfile(applyLocalDeletes(mergeProfileWithGraphFallback(data, stats), true));
       setProfileErr(null);
       return true;
     } catch (err: any) {
@@ -37,12 +65,12 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
       }
       return false;
     }
-  }, [api, stats]);
+  }, [api, applyLocalDeletes, stats]);
 
   useEffect(() => { fetchProfile(); }, [fetchProfile]);
   useEffect(() => {
-    setProfile((prev: any) => prev ? mergeProfileWithGraphFallback(prev, stats) : prev);
-  }, [stats]);
+    setProfile((prev: any) => prev ? applyLocalDeletes(mergeProfileWithGraphFallback(prev, stats, { fillEmptyBuckets: false })) : prev);
+  }, [applyLocalDeletes, stats]);
   useEffect(() => {
     const onProfileRefresh = () => { void fetchProfile(); };
     window.addEventListener("profile-refresh", onProfileRefresh);
@@ -68,7 +96,9 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
     const key = `${type}:${id}`;
     if (!id || deletingItems.has(key)) return;
     const previousProfile = profile;
-    setProfile((prev: any) => prev ? removeProfileItem(prev, type, id) : prev);
+    const marker = { type, id };
+    const markers = addDeleteMarker(marker);
+    setProfile((prev: any) => prev ? applyProfileDeleteMarkers(removeProfileItem(prev, type, id), markers) : prev);
     setDeletingItems(prev => new Set(prev).add(key));
     try {
       const res = await api(profileDeletePath(type, id), { method: "DELETE", timeoutMs: 120000 });
@@ -79,6 +109,7 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
       window.dispatchEvent(new CustomEvent("graph-refresh"));
     } catch (err: any) {
       console.error("Delete error:", err);
+      removeDeleteMarker(marker);
       setProfile(previousProfile);
       setProfileErr(err?.message || "Delete failed");
     } finally {

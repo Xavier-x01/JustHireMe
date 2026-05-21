@@ -347,6 +347,27 @@ def _query_rows(query: str, params: dict | None = None, *, require_result: bool 
     return rows
 
 
+def _upsert_node(label: str, props: dict) -> bool:
+    pk = next(iter(props))
+    try:
+        result = execute_query(f"MATCH (n:{label}) WHERE n.{pk} = ${pk} RETURN n.{pk} LIMIT 1", props)
+        if result is not None and result.has_next():
+            if len(props) > 1:
+                sets = ", ".join(f"n.{key} = ${key}" for key in props if key != pk)
+                execute_query(f"MATCH (n:{label}) WHERE n.{pk} = ${pk} SET {sets}", props)
+            return True
+        cols = ", ".join(f"{key}: ${key}" for key in props)
+        execute_query(f"CREATE (:{label} {{{cols}}})", props)
+        return True
+    except Exception as exc:
+        if "duplicated primary key" in str(exc).lower() and len(props) > 1:
+            sets = ", ".join(f"n.{key} = ${key}" for key in props if key != pk)
+            _safe_execute(f"MATCH (n:{label}) WHERE n.{pk} = ${pk} SET {sets}", props)
+            return True
+        _log.warning("graph node upsert skipped: %s", exc)
+        return False
+
+
 def read_profile_from_graph(*, require_graph: bool = False) -> dict:
     candidates = _query_rows("MATCH (n:Candidate) RETURN n.id, n.n, n.s", require_result=require_graph)
     if candidates:
@@ -791,6 +812,10 @@ def delete_vec_id_from_all(row_id: str) -> None:
         delete_vec_rows(table_name, [row_id])
 
 
+def drop_profile_aggregate_vector() -> None:
+    delete_vec_rows("profile", ["profile:default"])
+
+
 def prune_bad_vector_rows() -> int:
     deleted = 0
     for table_name in ["profile", "candidates", "skills", "projects", "experiences", "credentials"]:
@@ -957,20 +982,14 @@ def add_skill(name: str, category: str, db_path: str | None = None) -> dict:
     category = str(category or "general").strip() or "general"
     skill_id = hash_id(name)
     _forget_profile_deletion("skills", [skill_id, name], db_path)
-    try:
-        execute_query("CREATE (:Skill {id: $id, n: $n, cat: $cat})", {"id": skill_id, "n": name, "cat": category})
-    except Exception as log_exc:
-        logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:add_skill: %s', log_exc)
-        _safe_execute(
-            "MATCH (s:Skill) WHERE s.id = $id SET s.n = $n, s.cat = $cat",
-            {"id": skill_id, "n": name, "cat": category},
-        )
+    _upsert_node("Skill", {"id": skill_id, "n": name, "cat": category})
     if not _bulk_import_active():
         try:
             add_skill_vec(skill_id, name, category)
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:add_skill: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _link_to_candidate("Skill", skill_id, "HAS_SKILL")
     _refresh_after_write(db_path)
     _save_profile_patch({"skills": [{"id": skill_id, "n": name, "cat": category}]}, db_path)
@@ -991,6 +1010,7 @@ def update_skill(skill_id: str, name: str, category: str, db_path: str | None = 
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:update_skill: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _link_to_candidate("Skill", skill_id, "HAS_SKILL")
     _refresh_after_write(db_path)
     snapshot = load_profile_snapshot(db_path)
@@ -1014,6 +1034,7 @@ def delete_skill(skill_id: str, db_path: str | None = None) -> None:
     for node_id in delete_ids:
         delete_vec_id_from_all(node_id)
         _safe_execute("MATCH (s:Skill) WHERE s.id = $id DETACH DELETE s", {"id": node_id})
+    drop_profile_aggregate_vector()
     snapshot = normal_profile(load_profile_snapshot(db_path))
     delete_id_set = set(delete_ids)
     delete_key = _norm_key(value)
@@ -1039,17 +1060,7 @@ def add_experience(role: str, company: str, period: str, description: str, db_pa
     description = str(description or "").strip()
     experience_id = hash_id(role + company)
     _forget_profile_deletion("exp", [experience_id, role, company, role + company, " at ".join(part for part in [role, company] if part)], db_path)
-    try:
-        execute_query(
-            "CREATE (:Experience {id: $id, role: $role, co: $co, period: $period, d: $d})",
-            {"id": experience_id, "role": role, "co": company, "period": period, "d": description},
-        )
-    except Exception as log_exc:
-        logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:add_experience: %s', log_exc)
-        _safe_execute(
-            "MATCH (e:Experience) WHERE e.id = $id SET e.role = $role, e.co = $co, e.period = $period, e.d = $d",
-            {"id": experience_id, "role": role, "co": company, "period": period, "d": description},
-        )
+    _upsert_node("Experience", {"id": experience_id, "role": role, "co": company, "period": period, "d": description})
     _link_to_candidate("Experience", experience_id, "WORKED_AS")
     _link_experience_skills(experience_id, f"{role} {company} {description}")
     if not _bulk_import_active():
@@ -1058,6 +1069,7 @@ def add_experience(role: str, company: str, period: str, description: str, db_pa
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:add_experience: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _refresh_after_write(db_path)
     _save_profile_patch({"exp": [{"id": experience_id, "role": role, "co": company, "period": period, "d": description}]}, db_path)
     return {"id": experience_id, "role": role, "co": company, "period": period, "d": description}
@@ -1081,6 +1093,7 @@ def update_experience(experience_id: str, role: str, company: str, period: str, 
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:update_experience: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _refresh_after_write(db_path)
     snapshot = normal_profile(load_profile_snapshot(db_path))
     row = {"id": experience_id, "role": role, "co": company, "period": period, "d": description}
@@ -1099,6 +1112,7 @@ def delete_experience(experience_id: str, db_path: str | None = None) -> None:
     for node_id in delete_ids:
         delete_vec_id_from_all(node_id)
         _safe_execute("MATCH (e:Experience) WHERE e.id = $id DETACH DELETE e", {"id": node_id})
+    drop_profile_aggregate_vector()
     snapshot = normal_profile(load_profile_snapshot(db_path))
     delete_id_set = set(delete_ids)
     delete_key = _norm_key(value)
@@ -1124,17 +1138,7 @@ def add_project(title: str, stack: str, repo: str, impact: str, db_path: str | N
     impact = str(impact or "").strip()
     project_id = hash_id(title)
     _forget_profile_deletion("projects", [project_id, title], db_path)
-    try:
-        execute_query(
-            "CREATE (:Project {id: $id, title: $title, stack: $stack, repo: $repo, impact: $impact})",
-            {"id": project_id, "title": title, "stack": stack, "repo": repo, "impact": impact},
-        )
-    except Exception as log_exc:
-        logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:add_project: %s', log_exc)
-        _safe_execute(
-            "MATCH (p:Project) WHERE p.id = $id SET p.title = $title, p.stack = $stack, p.repo = $repo, p.impact = $impact",
-            {"id": project_id, "title": title, "stack": stack, "repo": repo, "impact": impact},
-        )
+    _upsert_node("Project", {"id": project_id, "title": title, "stack": stack, "repo": repo, "impact": impact})
     _link_to_candidate("Project", project_id, "BUILT")
     _link_project_skills(project_id, stack, db_path)
     if not _bulk_import_active():
@@ -1143,6 +1147,7 @@ def add_project(title: str, stack: str, repo: str, impact: str, db_path: str | N
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:add_project: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _refresh_after_write(db_path)
     _save_profile_patch({"projects": [{"id": project_id, "title": title, "stack": stack_list(stack), "repo": repo, "impact": impact}]}, db_path)
     return {"id": project_id, "title": title, "stack": stack.split(",") if stack else [], "repo": repo, "impact": impact}
@@ -1166,6 +1171,7 @@ def update_project(project_id: str, title: str, stack: str, repo: str, impact: s
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:update_project: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _refresh_after_write(db_path)
     snapshot = normal_profile(load_profile_snapshot(db_path))
     row = {"id": project_id, "title": title, "stack": stack_list(stack), "repo": repo, "impact": impact}
@@ -1184,6 +1190,7 @@ def delete_project(project_id: str, db_path: str | None = None) -> None:
     for node_id in delete_ids:
         delete_vec_id_from_all(node_id)
         _safe_execute("MATCH (p:Project) WHERE p.id = $id DETACH DELETE p", {"id": node_id})
+    drop_profile_aggregate_vector()
     snapshot = normal_profile(load_profile_snapshot(db_path))
     delete_id_set = set(delete_ids)
     delete_key = _norm_key(value)
@@ -1212,11 +1219,7 @@ def _add_text_node(label: str, rel: str, title: str, db_path: str | None = None)
     }.get(label)
     if key:
         _forget_profile_deletion(key, [node_id, title], db_path)
-    try:
-        execute_query(f"CREATE (:{label} {{id: $id, title: $title}})", {"id": node_id, "title": title})
-    except Exception as log_exc:
-        logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:_add_text_node: %s', log_exc)
-        pass
+    _upsert_node(label, {"id": node_id, "title": title})
     _link_to_candidate(label, node_id, rel)
     if not _bulk_import_active():
         try:
@@ -1224,6 +1227,7 @@ def _add_text_node(label: str, rel: str, title: str, db_path: str | None = None)
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:_add_text_node: %s', log_exc)
             pass
+        drop_profile_aggregate_vector()
     _refresh_after_write(db_path)
     if key:
         _save_profile_patch({key: [title]}, db_path)
@@ -1326,6 +1330,7 @@ def _delete_text_node(label: str, profile_key: str, entry: str, db_path: str | N
     for node_id in delete_ids:
         delete_vec_id_from_all(node_id)
         _safe_execute(f"MATCH (n:{label}) WHERE n.id = $id DETACH DELETE n", {"id": node_id})
+    drop_profile_aggregate_vector()
 
     snapshot = normal_profile(load_profile_snapshot(db_path))
     entry_key = _entry_key(entry)
@@ -1383,7 +1388,10 @@ def update_candidate(name: str, summary: str, db_path: str | None = None) -> dic
     name = str(name or "").strip()
     summary = clean_profile_summary(str(summary or "").strip())
     candidate_id = hash_id(name or "Candidate")
-    _refresh_after_write(db_path)
+    snapshot = normal_profile(load_profile_snapshot(db_path))
+    snapshot["n"] = name
+    snapshot["s"] = summary
+    save_profile_snapshot(snapshot, db_path)
     try:
         result = execute_query("MATCH (n:Candidate) RETURN n.id LIMIT 1")
         if result is not None and result.has_next():
@@ -1406,6 +1414,6 @@ def update_candidate(name: str, summary: str, db_path: str | None = None) -> dic
         except Exception as log_exc:
             logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:update_candidate: %s', log_exc)
             pass
-    _refresh_after_write(db_path)
-    _save_profile_patch({"n": name, "s": summary}, db_path)
+        drop_profile_aggregate_vector()
+    save_profile_snapshot(snapshot, db_path)
     return {"n": name, "s": summary}

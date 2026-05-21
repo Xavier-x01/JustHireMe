@@ -3,6 +3,7 @@ import type { GraphStats } from "../../types";
 const IDENTITY_KEYS = ["email", "phone", "linkedin_url", "github_url", "website_url", "city"] as const;
 
 export type ProfileTextType = "education" | "certification" | "achievement";
+export type ProfileDeleteMarker = { type: string; id: string };
 
 type ProfileRecord = Record<string, unknown>;
 
@@ -283,8 +284,9 @@ export function profileFromGraphStats(stats: GraphStats | null | undefined) {
   return profileHasContent(merged) ? merged : null;
 }
 
-export function mergeProfileWithGraphFallback(profile: unknown, stats: GraphStats | null | undefined) {
+export function mergeProfileWithGraphFallback(profile: unknown, stats: GraphStats | null | undefined, options?: { fillEmptyBuckets?: boolean }) {
   const base = normalizeProfileResponse(profile);
+  const fillEmptyBuckets = options?.fillEmptyBuckets !== false;
   const statsProfile = profileHasContent(stats?.profile) ? normalizeProfileResponse(stats?.profile) : null;
   const graphProfile = statsProfile && profileFromGraphStats(stats)
     ? mergeFallbackProfiles(statsProfile, profileFromGraphStats(stats))
@@ -294,12 +296,12 @@ export function mergeProfileWithGraphFallback(profile: unknown, stats: GraphStat
     ...base,
     n: base.n || graphProfile.n,
     s: base.s || graphProfile.s,
-    skills: base.skills.length ? base.skills : graphProfile.skills,
-    projects: base.projects.length ? base.projects : graphProfile.projects,
-    exp: base.exp.length ? base.exp : graphProfile.exp,
-    education: base.education.length ? base.education : graphProfile.education,
-    certifications: base.certifications.length ? base.certifications : graphProfile.certifications,
-    achievements: base.achievements.length ? base.achievements : graphProfile.achievements,
+    skills: fillEmptyBuckets && !base.skills.length ? graphProfile.skills : base.skills,
+    projects: fillEmptyBuckets && !base.projects.length ? graphProfile.projects : base.projects,
+    exp: fillEmptyBuckets && !base.exp.length ? graphProfile.exp : base.exp,
+    education: fillEmptyBuckets && !base.education.length ? graphProfile.education : base.education,
+    certifications: fillEmptyBuckets && !base.certifications.length ? graphProfile.certifications : base.certifications,
+    achievements: fillEmptyBuckets && !base.achievements.length ? graphProfile.achievements : base.achievements,
     identity: { ...graphProfile.identity, ...Object.fromEntries(Object.entries(base.identity).filter(([, value]) => String(value || "").trim())) },
   });
 }
@@ -366,4 +368,23 @@ export function removeProfileItem(profile: unknown, type: string, idOrTitle: str
   }
 
   return next;
+}
+
+export function applyProfileDeleteMarkers(profile: unknown, markers: ProfileDeleteMarker[]) {
+  return markers.reduce(
+    (next, marker) => removeProfileItem(next, marker.type, marker.id),
+    normalizeProfileResponse(profile),
+  );
+}
+
+export function profileHasDeleteMarker(profile: unknown, marker: ProfileDeleteMarker) {
+  const before = normalizeProfileResponse(profile);
+  const after = removeProfileItem(before, marker.type, marker.id);
+  if (marker.type === "skill") return after.skills.length !== before.skills.length;
+  if (marker.type === "experience") return after.exp.length !== before.exp.length;
+  if (marker.type === "project") return after.projects.length !== before.projects.length;
+  if (marker.type === "education") return after.education.length !== before.education.length;
+  if (marker.type === "certification") return after.certifications.length !== before.certifications.length;
+  if (marker.type === "achievement") return after.achievements.length !== before.achievements.length;
+  return false;
 }
