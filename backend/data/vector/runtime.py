@@ -378,8 +378,9 @@ def install_vector_runtime() -> Path:
         runtime_dir = vector_runtime_dir()
         browser_dir = browser_runtime_dir()
         vector_ready_before = vector_runtime_ready(runtime_dir)
+        vector_files_complete_before = vector_runtime_files_complete(runtime_dir)
         browser_ready_before = browser_runtime_ready(browser_dir)
-        if vector_ready_before and (browser_ready_before or _legacy_vector_runtime_override()):
+        if vector_ready_before and vector_files_complete_before and (browser_ready_before or _legacy_vector_runtime_override()):
             _set_progress(
                 status="installed",
                 message="Required runtime pack is installed.",
@@ -447,7 +448,7 @@ def install_vector_runtime() -> Path:
                     _set_progress(status="error", message=error, error=error)
                     raise RuntimeError(error)
 
-                if vector_ready_before:
+                if vector_ready_before and vector_files_complete_before:
                     _set_progress(
                         status="copying",
                         message="Keeping existing LanceDB vector runtime.",

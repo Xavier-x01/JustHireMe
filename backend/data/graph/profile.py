@@ -10,7 +10,7 @@ from urllib.parse import unquote
 from collections.abc import Iterable
 
 from core.logging import get_logger
-from data.graph.connection import execute_query
+from data.graph.connection import execute_query, sync_profile_relationships
 from data.sqlite.settings import get_setting, save_settings
 from data.vector import connection as vector_connection
 from graph_service.helpers import is_bad_vector_label
@@ -349,8 +349,9 @@ def _query_rows(query: str, params: dict | None = None, *, require_result: bool 
 
 def _upsert_node(label: str, props: dict) -> bool:
     pk = next(iter(props))
+    pk_params = {pk: props[pk]}
     try:
-        result = execute_query(f"MATCH (n:{label}) WHERE n.{pk} = ${pk} RETURN n.{pk} LIMIT 1", props)
+        result = execute_query(f"MATCH (n:{label}) WHERE n.{pk} = ${pk} RETURN n.{pk} LIMIT 1", pk_params)
         if result is not None and result.has_next():
             if len(props) > 1:
                 sets = ", ".join(f"n.{key} = ${key}" for key in props if key != pk)
@@ -602,6 +603,64 @@ def refresh_profile_snapshot(db_path: str | None = None) -> None:
         save_profile_snapshot(profile, db_path)
 
 
+def materialize_profile_snapshot(profile: dict | None = None, db_path: str | None = None) -> dict:
+    profile = normal_profile(profile or get_profile(db_path))
+    if not profile_has_data(profile):
+        return {"status": "skipped", "created": 0, "reason": "no profile data"}
+
+    created = 0
+    with bulk_profile_import():
+        update_candidate(profile.get("n", ""), profile.get("s", ""), db_path)
+        created += 1
+        for item in profile.get("skills", []) or []:
+            if not isinstance(item, dict):
+                name = str(item or "").strip()
+                category = "general"
+            else:
+                name = str(item.get("n") or item.get("name") or item.get("title") or "").strip()
+                category = str(item.get("cat") or item.get("category") or "general").strip() or "general"
+            if name:
+                add_skill(name, category, db_path)
+                created += 1
+        for item in profile.get("projects", []) or []:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or item.get("name") or "").strip()
+            if not title:
+                continue
+            stack = ", ".join(stack_list(item.get("stack")))
+            add_project(title, stack, str(item.get("repo") or item.get("url") or ""), str(item.get("impact") or item.get("description") or item.get("text") or ""), db_path)
+            created += 1
+        for item in profile.get("exp", []) or []:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or item.get("title") or "").strip()
+            company = str(item.get("co") or item.get("company") or item.get("org") or "").strip()
+            if not role and not company:
+                continue
+            add_experience(role, company, str(item.get("period") or item.get("dates") or ""), str(item.get("d") or item.get("description") or item.get("text") or ""), db_path)
+            created += 1
+        for title in profile.get("education", []) or []:
+            text = _entry_text(title)
+            if text:
+                add_education(text, db_path)
+                created += 1
+        for title in profile.get("certifications", []) or []:
+            text = _entry_text(title)
+            if text:
+                add_certification(text, db_path)
+                created += 1
+        for title in profile.get("achievements", []) or []:
+            text = _entry_text(title)
+            if text:
+                add_achievement(text, db_path)
+                created += 1
+
+    sync = sync_profile_relationships()
+    save_profile_snapshot(profile, db_path)
+    return {"status": "ok", "created": created, "relationships": sync}
+
+
 def purge_profile_deletion_tombstones(db_path: str | None = None) -> dict:
     deletions = _load_profile_deletions(db_path)
     purged = 0
@@ -800,11 +859,15 @@ def delete_vec_rows(table_name: str, ids: list[str]) -> None:
     try:
         if table_name not in vec_table_names():
             return
-        quoted = ["'" + item.replace("'", "''") + "'" for item in ids]
-        _vec().open_table(table_name).delete("id IN (" + ", ".join(quoted) + ")")
+        _delete_vec_ids(_vec().open_table(table_name), ids)
     except Exception as log_exc:
         logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:delete_vec_rows: %s', log_exc)
         pass
+
+
+def _delete_vec_ids(table, ids: list[str]) -> None:
+    quoted = ["'" + item.replace("'", "''") + "'" for item in ids]
+    table.delete("id IN (" + ", ".join(quoted) + ")")
 
 
 def delete_vec_id_from_all(row_id: str) -> None:
@@ -851,23 +914,46 @@ def vec_table_names() -> list[str]:
     if getattr(store, "available", True) is False:
         return []
     raw = store.list_tables()
+    names = _normalize_table_names(raw)
+    if names:
+        return names
+    return []
+
+
+def _normalize_table_names(raw) -> list[str]:
+    if raw is None:
+        return []
     if isinstance(raw, list):
-        return [str(item) for item in raw]
+        out: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                value = item.get("name") or item.get("table") or item.get("table_name")
+                if value:
+                    out.append(str(value))
+            elif isinstance(item, (list, tuple)) and item:
+                out.append(str(item[0]))
+            elif item is not None:
+                out.append(str(item))
+        return out
     if hasattr(raw, "tables"):
-        return [str(item) for item in raw.tables]
+        return _normalize_table_names(raw.tables)
     if isinstance(raw, dict):
         tables = raw.get("tables", raw)
-        if isinstance(tables, list):
-            return [str(item) for item in tables]
+        if tables is not raw:
+            return _normalize_table_names(tables)
     try:
         pairs = dict(raw)
         tables = pairs.get("tables", [])
-        if isinstance(tables, list):
-            return [str(item) for item in tables]
+        if tables:
+            return _normalize_table_names(tables)
     except Exception as log_exc:
         logging.getLogger(__name__).warning('suppressed exception in backend/data/graph/profile.py:vec_table_names: %s', log_exc)
-        pass
-    return [str(item) for item in raw]
+    try:
+        return [str(item) for item in raw]
+    except TypeError:
+        return []
 
 
 def put_vec_rows(table_name: str, rows: list[dict]) -> None:
@@ -883,7 +969,15 @@ def put_vec_rows(table_name: str, rows: list[dict]) -> None:
             delete_vec_rows(table_name, ids)
             store.open_table(table_name).add(rows)
         else:
-            store.create_table(table_name, data=rows)
+            try:
+                store.create_table(table_name, data=rows)
+            except Exception as exc:
+                if "already exists" not in str(exc).lower():
+                    raise
+                rows = _rows_for_existing_table(table_name, rows)
+                table = store.open_table(table_name)
+                _delete_vec_ids(table, ids)
+                table.add(rows)
     except Exception as exc:
         _log.warning("vector write failed for %s: %s", table_name, exc)
 

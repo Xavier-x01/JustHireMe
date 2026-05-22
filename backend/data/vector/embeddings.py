@@ -45,10 +45,10 @@ def embed_texts(texts: list[str]) -> list:
                         if exc.name == "sentence_transformers":
                             _log.info("SentenceTransformer package not installed; using built-in local embedder")
                         else:
-                            _log.warning("SentenceTransformer dependency unavailable; using built-in local embedder: %s", exc)
+                            _log.info("SentenceTransformer dependency unavailable; using built-in local embedder: %s", exc)
                         exc_holder[0] = exc
                     except Exception as exc:
-                        logging.getLogger(__name__).warning("SentenceTransformer unavailable; using built-in local embedder: %s", exc)
+                        logging.getLogger(__name__).info("SentenceTransformer unavailable; using built-in local embedder: %s", exc)
                         exc_holder[0] = exc
 
                 thread = threading.Thread(target=_load, daemon=True)
@@ -56,11 +56,11 @@ def embed_texts(texts: list[str]) -> list:
                 thread.join(timeout=120)
                 if thread.is_alive():
                     _st_error = "SentenceTransformer load timed out"
-                    _log.warning("SentenceTransformer unavailable; using built-in local embedder")
+                    _log.info("SentenceTransformer unavailable; using built-in local embedder")
                     _st = "hashing"
                 elif exc_holder[0] or result[0] is None:
                     _st_error = str(exc_holder[0] or "SentenceTransformer returned no model")
-                    _log.warning("SentenceTransformer unavailable; using built-in local embedder")
+                    _log.info("SentenceTransformer unavailable; using built-in local embedder")
                     _st = "hashing"
                 else:
                     _st_error = ""

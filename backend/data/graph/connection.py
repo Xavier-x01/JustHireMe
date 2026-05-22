@@ -319,7 +319,7 @@ def _ensure_candidate_for_profile() -> str:
     candidate_id = "profile-default"
     if has_profile_evidence:
         params = {"id": candidate_id, "n": "Profile", "s": "Local profile evidence root"}
-        result = execute_query("MATCH (c:Candidate {id: $id}) RETURN c.id LIMIT 1", params)
+        result = execute_query("MATCH (c:Candidate {id: $id}) RETURN c.id LIMIT 1", {"id": candidate_id})
         if result is not None and result.has_next():
             execute_query("MATCH (c:Candidate {id: $id}) SET c.n = $n, c.s = $s", params)
         else:
@@ -332,7 +332,7 @@ def _ensure_skill(name: str, category: str) -> str:
     skill_id = md5(clean.encode()).hexdigest()[:12]
     try:
         params = {"id": skill_id, "n": clean, "cat": category}
-        result = execute_query("MATCH (s:Skill {id: $id}) RETURN s.id LIMIT 1", params)
+        result = execute_query("MATCH (s:Skill {id: $id}) RETURN s.id LIMIT 1", {"id": skill_id})
         if result is not None and result.has_next():
             execute_query("MATCH (s:Skill {id: $id}) SET s.n = $n, s.cat = $cat", params)
         else:

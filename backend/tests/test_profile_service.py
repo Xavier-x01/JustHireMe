@@ -45,6 +45,7 @@ def test_resume_ingestor_put_node_updates_existing_without_duplicate_create(monk
 
     ingestor._put_node("Skill", {"id": "skill-1", "n": "Python", "cat": "general"})
 
+    assert calls[0][1] == {"id": "skill-1"}
     assert any(" SET " in query for query, _params in calls)
     assert not any(query.startswith("CREATE") for query, _params in calls)
 
@@ -432,6 +433,55 @@ def test_graph_profile_get_profile_hydrates_sparse_snapshot_from_vectors(monkeyp
     assert [project["title"] for project in merged["projects"]] == ["GitArt"]
     assert merged["certifications"] == ["Cloud Cert"]
     assert saved["skills"][0]["n"] == "TypeScript"
+
+
+def test_graph_profile_materializes_profile_snapshot(monkeypatch):
+    from data.graph import profile as graph_profile
+
+    calls = {"candidate": [], "skills": [], "projects": [], "sync": 0, "saved": []}
+
+    monkeypatch.setattr(graph_profile, "update_candidate", lambda name, summary, _db_path=None: calls["candidate"].append((name, summary)))
+    monkeypatch.setattr(graph_profile, "add_skill", lambda name, category, _db_path=None: calls["skills"].append((name, category)))
+    monkeypatch.setattr(graph_profile, "add_project", lambda title, stack, repo, impact, _db_path=None: calls["projects"].append((title, stack, repo, impact)))
+    monkeypatch.setattr(graph_profile, "add_experience", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(graph_profile, "add_education", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(graph_profile, "add_certification", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(graph_profile, "add_achievement", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(graph_profile, "sync_profile_relationships", lambda: calls.update(sync=calls["sync"] + 1) or {"status": "ok"})
+    monkeypatch.setattr(graph_profile, "save_profile_snapshot", lambda profile, _db_path=None, **_kwargs: calls["saved"].append(profile))
+
+    result = graph_profile.materialize_profile_snapshot({
+        "n": "Jane Doe",
+        "s": "Applied AI engineer",
+        "skills": [{"n": "Python", "cat": "backend"}],
+        "projects": [{"title": "Ops Console", "stack": ["Python", "React"], "impact": "Built workflows"}],
+    })
+
+    assert result["status"] == "ok"
+    assert calls["candidate"] == [("Jane Doe", "Applied AI engineer")]
+    assert calls["skills"] == [("Python", "backend")]
+    assert calls["projects"] == [("Ops Console", "Python, React", "", "Built workflows")]
+    assert calls["sync"] == 1
+    assert calls["saved"][0]["n"] == "Jane Doe"
+
+
+def test_graph_profile_upsert_matches_with_primary_key_only(monkeypatch):
+    from data.graph import profile as graph_profile
+
+    calls = []
+
+    class EmptyResult:
+        def has_next(self):
+            return False
+
+    def fake_execute(query, params=None):
+        calls.append((query, params))
+        return EmptyResult()
+
+    monkeypatch.setattr(graph_profile, "execute_query", fake_execute)
+
+    assert graph_profile._upsert_node("Skill", {"id": "python", "n": "Python", "cat": "backend"}) is True
+    assert calls[0][1] == {"id": "python"}
 
 
 def test_graph_profile_get_profile_returns_snapshot_when_strict_graph_read_is_busy(monkeypatch):

@@ -56,6 +56,16 @@ def _embed_jd(text: str) -> list[float] | None:
         return None
 
 
+def _embedding_mode() -> str:
+    try:
+        from data.vector.embeddings import embedding_status
+        status = embedding_status()
+        return str(status.get("mode") or "")
+    except Exception as log_exc:
+        logging.getLogger(__name__).warning('suppressed exception in backend/ranking/semantic.py:_embedding_mode: %s', log_exc)
+        return ""
+
+
 def _vec_store():
     try:
         from data.vector.connection import vec
@@ -69,10 +79,49 @@ def _available_tables(store) -> set[str]:
     if store is None:
         return set()
     try:
-        return set(store.list_tables() or [])
+        return set(_normalize_table_names(store.list_tables()))
     except Exception as log_exc:
         logging.getLogger(__name__).warning('suppressed exception in backend/ranking/semantic.py:_available_tables: %s', log_exc)
         return set()
+
+
+def _normalize_table_names(raw) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        out: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                value = item.get("name") or item.get("table") or item.get("table_name")
+                if value:
+                    out.append(str(value))
+            elif isinstance(item, (list, tuple)) and item:
+                out.append(str(item[0]))
+            elif item is not None:
+                out.append(str(item))
+        return out
+    if hasattr(raw, "tables"):
+        return _normalize_table_names(raw.tables)
+    if isinstance(raw, dict):
+        tables = raw.get("tables", raw)
+        if tables is not raw:
+            return _normalize_table_names(tables)
+    try:
+        pairs = dict(raw)
+        tables = pairs.get("tables", [])
+        if tables:
+            return _normalize_table_names(tables)
+    except Exception as log_exc:
+        logging.getLogger(__name__).debug(
+            "table name pair normalization skipped in backend/ranking/semantic.py:_normalize_table_names: %s",
+            log_exc,
+        )
+    try:
+        return [str(item) for item in raw]
+    except TypeError:
+        return []
 
 
 def _profile_scope(candidate_data: dict | None) -> dict[str, set[str]] | None:
@@ -407,6 +456,46 @@ def _semantic_result(
     }
 
 
+def _local_profile_result(
+    jd_text: str,
+    candidate_data: dict | None,
+    *,
+    top_skills: int,
+    top_projects: int,
+) -> dict | None:
+    local_rows = _local_rows_by_similarity(jd_text, candidate_data)
+    return _semantic_result(
+        skill_matches=_matches(local_rows, "skill", top_skills, "skill"),
+        project_matches=_matches(local_rows, "project", top_projects, "project"),
+        experience_matches=_matches(local_rows, "experience", 3, "experience"),
+        credential_matches=_matches(local_rows, "credential", 3, "credential"),
+        profile_matches=_matches(local_rows, "profile", 1, "profile"),
+        source="local-profile",
+    )
+
+
+def _prefer_local_result(
+    vector_result: dict | None,
+    local_result: dict | None,
+    *,
+    embedding_mode: str,
+) -> bool:
+    if vector_result is None:
+        return local_result is not None
+    if local_result is None:
+        return False
+
+    vector_score = int(vector_result.get("score") or 0)
+    local_score = int(local_result.get("score") or 0)
+    degraded_embeddings = embedding_mode in {"hashing", "lazy", ""}
+
+    if degraded_embeddings and local_score >= vector_score:
+        return True
+    if vector_score < 45 and local_score >= vector_score + 10:
+        return True
+    return False
+
+
 def semantic_fit(
     jd_text: str,
     *,
@@ -424,12 +513,19 @@ def semantic_fit(
     if scope is not None and not _scope_has_ids(scope) and not _local_profile_rows(candidate_data):
         return None
 
+    local_result = _local_profile_result(
+        jd_text,
+        candidate_data,
+        top_skills=top_skills,
+        top_projects=top_projects,
+    )
     store = _vec_store()
     tables = _available_tables(store)
     vector_tables = {"skills", "projects", "experiences", "credentials"} & tables
     if vector_tables:
         query = _embed_jd(jd_text)
         if query is not None:
+            embedding_mode = _embedding_mode()
             skill_rows = _table_search(
                 "skills",
                 query,
@@ -471,17 +567,11 @@ def semantic_fit(
                 source="vector-store",
             )
             if vector_result is not None:
+                if _prefer_local_result(vector_result, local_result, embedding_mode=embedding_mode):
+                    return local_result
                 return vector_result
 
-    local_rows = _local_rows_by_similarity(jd_text, candidate_data)
-    return _semantic_result(
-        skill_matches=_matches(local_rows, "skill", top_skills, "skill"),
-        project_matches=_matches(local_rows, "project", top_projects, "project"),
-        experience_matches=_matches(local_rows, "experience", 3, "experience"),
-        credential_matches=_matches(local_rows, "credential", 3, "credential"),
-        profile_matches=_matches(local_rows, "profile", 1, "profile"),
-        source="local-profile",
-    )
+    return local_result
 
 
 class SemanticMatcher:

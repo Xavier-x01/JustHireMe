@@ -144,20 +144,44 @@ def project_vector(vector: list) -> tuple[float, float, float]:
 
 def vector_table_names(vec) -> list[str]:
     raw = vec.list_tables()
+    names = _normalize_table_names(raw)
+    if names:
+        return names
+    return []
+
+
+def _normalize_table_names(raw) -> list[str]:
+    if raw is None:
+        return []
     if isinstance(raw, list):
-        return [str(item) for item in raw]
+        out: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                value = item.get("name") or item.get("table") or item.get("table_name")
+                if value:
+                    out.append(str(value))
+            elif isinstance(item, (list, tuple)) and item:
+                out.append(str(item[0]))
+            elif item is not None:
+                out.append(str(item))
+        return out
     if hasattr(raw, "tables"):
-        return [str(item) for item in raw.tables]
+        return _normalize_table_names(raw.tables)
     if isinstance(raw, dict):
         tables = raw.get("tables", raw)
-        if isinstance(tables, list):
-            return [str(item) for item in tables]
+        if tables is not raw:
+            return _normalize_table_names(tables)
     try:
         pairs = dict(raw)
         tables = pairs.get("tables", [])
-        if isinstance(tables, list):
-            return [str(item) for item in tables]
+        if tables:
+            return _normalize_table_names(tables)
     except Exception as log_exc:
         logging.getLogger(__name__).warning('suppressed exception in backend/graph_service/helpers.py:vector_table_names: %s', log_exc)
         pass
-    return [str(item) for item in raw]
+    try:
+        return [str(item) for item in raw]
+    except TypeError:
+        return []

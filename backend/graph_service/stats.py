@@ -138,7 +138,22 @@ def graph_stats_payload(*, repair: bool = False) -> dict:
     profile_repo = getattr(repo, "profile", None)
     if profile_repo and hasattr(profile_repo, "purge_profile_deletion_tombstones"):
         safe_graph_step(profile_repo.purge_profile_deletion_tombstones, "profile deletion purge", errors, default={"status": "skipped"})
+    profile_snapshot = {}
+    if profile_repo:
+        profile_snapshot = safe_graph_step(
+            lambda: profile_repo.get_profile() or profile_repo.load_profile_snapshot(),
+            "profile snapshot",
+            errors,
+            default={},
+        )
     if repair:
+        if profile_repo and hasattr(profile_repo, "materialize_profile_snapshot"):
+            safe_graph_step(
+                lambda: profile_repo.materialize_profile_snapshot(profile_snapshot),
+                "profile materialize",
+                errors,
+                default={"status": "skipped"},
+            )
         sync = safe_graph_step(lambda: repo.graph.sync_job_leads(repo.leads.get_all_leads()), "lead sync", errors)
         profile_sync = safe_graph_step(
             lambda: repo.graph.sync_profile_relationships() if hasattr(repo.graph, "sync_profile_relationships") else {"status": "skipped"},
@@ -155,14 +170,6 @@ def graph_stats_payload(*, repair: bool = False) -> dict:
     counts = safe_graph_step(repo.graph.graph_counts, "counts", errors, default={})
     available = safe_graph_step(repo.graph.graph_available, "availability", errors, default=False)
     graph = safe_graph_step(repo.graph.graph_snapshot, "snapshot", errors, default={"nodes": [], "edges": [], "available": False})
-    profile_snapshot = {}
-    if profile_repo:
-        profile_snapshot = safe_graph_step(
-            lambda: profile_repo.get_profile() or profile_repo.load_profile_snapshot(),
-            "profile snapshot",
-            errors,
-            default={},
-        )
     profile_graph = _profile_snapshot_graph(profile_snapshot)
     graph = _merge_graphs(_filter_stale_profile_nodes(graph, profile_graph), profile_graph)
     embedding = embedding_space(repo)

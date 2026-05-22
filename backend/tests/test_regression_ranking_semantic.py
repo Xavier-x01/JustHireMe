@@ -126,7 +126,8 @@ class RegressionTests(unittest.TestCase):
     def test_semantic_falls_back_to_local_profile_when_vector_tables_are_missing(self):
         from ranking import semantic
 
-        with mock.patch.object(semantic, "_embed_jd", side_effect=AssertionError("embedding should not load")):
+        with mock.patch.object(semantic, "_vec_store", return_value=_FakeSemanticStore({})), \
+             mock.patch.object(semantic, "_embed_jd", side_effect=AssertionError("embedding should not load")):
             result = semantic.semantic_fit("Need Python RAG engineer", candidate_data=_sample_scoring_profile())
 
         self.assertIsNotNone(result)
@@ -158,6 +159,65 @@ class RegressionTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual([name for name, _sim in result["skill_matches"]], ["FastAPI"])
         self.assertEqual([name for name, _sim in result["project_matches"]], ["Waldo"])
+
+    def test_semantic_uses_profile_signal_when_vector_fallback_is_weak(self):
+        from ranking import semantic
+
+        profile = {
+            "n": "Candidate",
+            "s": "Applied AI engineer",
+            "desired_position": "AI Engineer",
+            "skills": [
+                {"n": "Python"},
+                {"n": "FastAPI"},
+                {"n": "React"},
+                {"n": "LangGraph"},
+                {"n": "RAG"},
+            ],
+            "projects": [{
+                "title": "ProbeGraph",
+                "stack": ["FastAPI", "React", "LangGraph", "RAG"],
+                "impact": "Built knowledge graph ingestion and semantic search.",
+            }],
+            "exp": [{
+                "role": "AI Engineer",
+                "co": "Probe Labs",
+                "d": "Built RAG systems with FastAPI and React.",
+            }],
+            "certifications": ["Vector Search Systems"],
+        }
+        store = _FakeSemanticStore({
+            "skills": [
+                {"id": semantic._h("FastAPI"), "n": "FastAPI", "_distance": 0.86},
+                {"id": semantic._h("React"), "n": "React", "_distance": 0.86},
+                {"id": semantic._h("LangGraph"), "n": "LangGraph", "_distance": 0.86},
+            ],
+            "projects": [
+                {"id": semantic._h("ProbeGraph"), "title": "ProbeGraph", "_distance": 0.80},
+            ],
+            "experiences": [
+                {
+                    "id": semantic._h("AI EngineerProbe Labs"),
+                    "role": "AI Engineer",
+                    "_distance": 0.82,
+                },
+            ],
+            "credentials": [],
+        })
+
+        with mock.patch.object(semantic, "_vec_store", return_value=store), \
+             mock.patch.object(semantic, "_embed_jd", return_value=[0.0, 1.0]), \
+             mock.patch.object(semantic, "_embedding_mode", return_value="hashing"):
+            result = semantic.semantic_fit(
+                "Need Python FastAPI React LangGraph RAG engineer for knowledge graph ingestion and semantic search",
+                candidate_data=profile,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["source"], "local-profile")
+        self.assertGreaterEqual(result["score"], 70)
+        self.assertTrue(any(name == "FastAPI" for name, _sim in result["skill_matches"]))
+        self.assertTrue(any(name == "ProbeGraph" for name, _sim in result["project_matches"]))
 
     def test_semantic_local_fallback_uses_experience_and_credentials(self):
         from ranking import semantic

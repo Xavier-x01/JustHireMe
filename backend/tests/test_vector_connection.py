@@ -87,6 +87,65 @@ def test_graph_vector_sync_skips_when_store_is_disabled(monkeypatch):
     assert status == {"status": "disabled", "synced": 0, "error": "LanceDB not bundled"}
 
 
+def test_vector_table_names_normalize_lancedb_nested_rows(monkeypatch):
+    from data.graph import profile as graph_profile
+    from graph_service.helpers import vector_table_names
+    from ranking.semantic import _available_tables
+
+    class FakeVec:
+        def list_tables(self):
+            return [["skills"], ["projects"]]
+
+    fake_vec = FakeVec()
+    monkeypatch.setattr(graph_profile, "_vec", lambda: fake_vec)
+
+    assert graph_profile.vec_table_names() == ["skills", "projects"]
+    assert vector_table_names(fake_vec) == ["skills", "projects"]
+    assert _available_tables(fake_vec) == {"skills", "projects"}
+
+
+def test_put_vec_rows_falls_back_when_create_reports_existing_table(monkeypatch):
+    from data.graph import profile as graph_profile
+
+    calls = []
+
+    class FakeSchema:
+        names = ["id", "label", "vector"]
+
+    class FakeArrow:
+        schema = FakeSchema()
+
+    class FakeTable:
+        def to_arrow(self):
+            return FakeArrow()
+
+        def delete(self, predicate):
+            calls.append(("delete", predicate))
+
+        def add(self, rows):
+            calls.append(("add", rows))
+
+    class FakeVec:
+        available = True
+
+        def list_tables(self):
+            return []
+
+        def create_table(self, *_args, **_kwargs):
+            raise RuntimeError("Table 'skills' already exists")
+
+        def open_table(self, table_name):
+            calls.append(("open", table_name))
+            return FakeTable()
+
+    monkeypatch.setattr(graph_profile, "_vec", lambda: FakeVec())
+
+    graph_profile.put_vec_rows("skills", [{"id": "python", "label": "Python", "vector": [0.1], "extra": "drop"}])
+
+    assert ("delete", "id IN ('python')") in calls
+    assert ("add", [{"id": "python", "label": "Python", "vector": [0.1]}]) in calls
+
+
 def test_vector_runtime_asset_name_is_platform_specific(monkeypatch):
     from data.vector import runtime
 
@@ -199,6 +258,7 @@ def test_runtime_pack_install_skips_ready_vector_runtime(monkeypatch, tmp_path):
     monkeypatch.setenv("JHM_BROWSER_RUNTIME_DIR", str(browser_dir))
     monkeypatch.setenv("JHM_RUNTIME_PACK_URL", str(tmp_path / "runtime-pack.zip"))
     monkeypatch.setattr(runtime, "vector_runtime_ready", lambda _path=None: True)
+    monkeypatch.setattr(runtime, "vector_runtime_files_complete", lambda _path=None: True)
     monkeypatch.setattr(runtime, "browser_runtime_ready", lambda _path=None: browser_ready["value"])
     monkeypatch.setattr(runtime, "_download", lambda _url, _archive_path: None)
     monkeypatch.setattr(runtime, "_safe_extract", lambda _archive_path, _extract_dir: None)
@@ -215,6 +275,39 @@ def test_runtime_pack_install_skips_ready_vector_runtime(monkeypatch, tmp_path):
 
     assert runtime.install_vector_runtime() == runtime_dir
     assert copied == [browser_dir]
+
+
+def test_runtime_pack_install_copies_incomplete_vector_runtime(monkeypatch, tmp_path):
+    from data.vector import runtime
+
+    runtime_dir = tmp_path / "vector-runtime"
+    browser_dir = tmp_path / "browser-runtime" / "ms-playwright"
+    vector_payload = tmp_path / "payload" / "vector-runtime"
+    browser_payload = tmp_path / "payload" / "browser-runtime" / "ms-playwright"
+    vector_payload.mkdir(parents=True)
+    browser_payload.mkdir(parents=True)
+    browser_ready = {"value": False}
+    copied: list[Path] = []
+
+    monkeypatch.setenv("JHM_VECTOR_RUNTIME_DIR", str(runtime_dir))
+    monkeypatch.setenv("JHM_BROWSER_RUNTIME_DIR", str(browser_dir))
+    monkeypatch.setenv("JHM_RUNTIME_PACK_URL", str(tmp_path / "runtime-pack.zip"))
+    monkeypatch.setattr(runtime, "vector_runtime_ready", lambda _path=None: True)
+    monkeypatch.setattr(runtime, "vector_runtime_files_complete", lambda _path=None: False)
+    monkeypatch.setattr(runtime, "browser_runtime_ready", lambda _path=None: browser_ready["value"])
+    monkeypatch.setattr(runtime, "_download", lambda _url, _archive_path: None)
+    monkeypatch.setattr(runtime, "_safe_extract", lambda _archive_path, _extract_dir: None)
+    monkeypatch.setattr(runtime, "_runtime_pack_payloads", lambda _extract_dir: (vector_payload, browser_payload))
+
+    def copy_payload(_payload: Path, target: Path, **_kwargs):
+        copied.append(target)
+        if target == browser_dir:
+            browser_ready["value"] = True
+
+    monkeypatch.setattr(runtime, "_copy_payload", copy_payload)
+
+    assert runtime.install_vector_runtime() == runtime_dir
+    assert copied == [runtime_dir, browser_dir]
 
 
 def test_hash_embedding_fallback_reports_ok(monkeypatch):

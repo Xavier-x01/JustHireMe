@@ -28,7 +28,7 @@ def _put_node(tbl: str, props: dict):
     try:
         from data.graph.connection import execute_query
 
-        result = execute_query(f"MATCH (n:{tbl}) WHERE n.{pk} = ${pk} RETURN n.{pk} LIMIT 1", props)
+        result = execute_query(f"MATCH (n:{tbl}) WHERE n.{pk} = ${pk} RETURN n.{pk} LIMIT 1", {pk: props[pk]})
         if result is not None and result.has_next():
             if len(props) > 1:
                 sets = ", ".join(f"n.{k} = ${k}" for k in props if k != pk)
