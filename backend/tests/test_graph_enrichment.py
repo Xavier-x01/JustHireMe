@@ -147,10 +147,10 @@ def test_graph_enriched_profile_fails_gracefully(monkeypatch):
 def test_graph_enriched_profile_none_input():
     from ranking.graph_enrichment import graph_enriched_profile
 
-    with patch("ranking.graph_enrichment.expanded_skills", return_value=[]):
-        with patch("ranking.graph_enrichment.infer_domains", return_value=[]):
-            result = graph_enriched_profile(None)
-            assert result["_graph_enriched"] is False
+    with patch("ranking.graph_enrichment.expanded_skills", return_value=[]), \
+         patch("ranking.graph_enrichment.infer_domains", return_value=[]):
+        result = graph_enriched_profile(None)
+        assert result["_graph_enriched"] is False
 
 
 # ── Enriched profile text ────────────────────────────────────────────────

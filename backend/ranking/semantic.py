@@ -545,9 +545,7 @@ def _prefer_local_result(
 
     if degraded_embeddings and local_score >= vector_score:
         return True
-    if vector_score < 45 and local_score >= vector_score + 10:
-        return True
-    return False
+    return vector_score < 45 and local_score >= vector_score + 10
 
 
 def semantic_fit(

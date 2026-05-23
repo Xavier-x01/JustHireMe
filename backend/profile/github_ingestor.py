@@ -487,7 +487,7 @@ async def ingest_github(username: str, token: str | None = None, max_repos: int 
             _ingest_github_inner(username, token, max_repos),
             timeout=_GITHUB_SESSION_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _log.warning("github ingest timed out after %ds for %s", _GITHUB_SESSION_TIMEOUT, username)
         return {"error": f"GitHub scan timed out after {_GITHUB_SESSION_TIMEOUT}s. Try reducing 'Max repos to scan' or adding a GitHub token.", "error_kind": "timeout", "status_code": 504}
 

@@ -215,7 +215,7 @@ async def ingest_portfolio_url(url: str) -> dict:
         if not pages:
             fetch_error = "Browser could not access the portfolio site."
             pages = await asyncio.to_thread(_crawl_portfolio_http, start_url)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _log.warning(
             "portfolio crawl exceeded %ss hard limit for %s; falling back to HTTP",
             _CRAWL_HARD_TIMEOUT,

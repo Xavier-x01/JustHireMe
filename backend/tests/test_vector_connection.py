@@ -4,6 +4,7 @@ import importlib
 import sys
 import types
 from pathlib import Path
+from typing import ClassVar
 
 
 def test_vector_store_uses_jhm_app_data_dir(monkeypatch, tmp_path):
@@ -110,7 +111,7 @@ def test_put_vec_rows_falls_back_when_create_reports_existing_table(monkeypatch)
     calls = []
 
     class FakeSchema:
-        names = ["id", "label", "vector"]
+        names: ClassVar = ["id", "label", "vector"]
 
     class FakeArrow:
         schema = FakeSchema()

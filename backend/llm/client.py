@@ -63,9 +63,7 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
         return True
     # HTTP 5xx from either SDK (APIStatusError subclasses expose status_code).
     status = getattr(exc, "status_code", None)
-    if isinstance(status, int) and 500 <= status < 600:
-        return True
-    return False
+    return isinstance(status, int) and 500 <= status < 600
 
 
 def is_transient_llm_error(exc: Exception) -> bool:

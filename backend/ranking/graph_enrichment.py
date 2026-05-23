@@ -8,7 +8,7 @@ alone. Three enrichments:
    follows ``RELATED_SKILL`` edges for co-occurrence expansion.
 
 2. **Evidence weighting** — skills backed by project or experience edges are
-   annotated with an ``evidence_score`` (0–1) so the scoring engine can trust
+   annotated with an ``evidence_score`` (0-1) so the scoring engine can trust
    them more than standalone claims.
 
 3. **Domain inference** — traverses experience → company → role patterns to
@@ -20,7 +20,6 @@ unavailable, so the matching pipeline never breaks.
 """
 from __future__ import annotations
 
-import logging
 import re
 from collections import defaultdict
 
@@ -99,7 +98,7 @@ def expanded_skills() -> list[dict]:
 
     Each skill dict has:
       - n, cat, id (standard fields)
-      - evidence_score: float 0–1 (how well-evidenced this skill is)
+      - evidence_score: float 0-1 (how well-evidenced this skill is)
       - evidence_sources: list of strings ("project: X", "experience: Y")
       - related_skills: list of related skill names from graph edges
     """

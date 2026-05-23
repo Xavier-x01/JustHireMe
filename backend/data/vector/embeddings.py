@@ -15,7 +15,6 @@ automatically: onnx → hash, openai → hash.
 from __future__ import annotations
 
 import hashlib
-import logging
 import math
 import os
 import re
@@ -115,7 +114,6 @@ def download_onnx_model(*, force: bool = False) -> dict:
 def _download_onnx_urllib(model_dir: Path) -> dict:
     """Fallback downloader using only stdlib urllib."""
     import urllib.request
-    import json
 
     base = f"https://huggingface.co/sentence-transformers/{ONNX_MODEL_NAME}/resolve/main"
     files = {
@@ -132,10 +130,9 @@ def _download_onnx_urllib(model_dir: Path) -> dict:
         try:
             _log.info("Downloading %s from %s", filename, url)
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                with open(str(target), "wb") as fout:
-                    import shutil
-                    shutil.copyfileobj(resp, fout)
+            with urllib.request.urlopen(req, timeout=60) as resp, open(str(target), "wb") as fout:
+                import shutil
+                shutil.copyfileobj(resp, fout)
         except Exception as exc:
             _log.warning("ONNX model download failed for %s: %s", filename, exc)
             return {"status": "error", "error": str(exc)}

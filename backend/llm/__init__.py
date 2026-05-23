@@ -16,11 +16,11 @@ from llm.client import (
 )
 
 __all__ = [
+    "LLM_EXECUTOR",
     "_DEFAULT_MODELS",
     "_ENV_NAMES",
     "_KEY_NAMES",
     "_OPENAI_COMPAT_BASE_URLS",
-    "LLM_EXECUTOR",
     "_resolve",
     "acall_llm",
     "acall_raw",
