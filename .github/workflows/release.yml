@@ -676,6 +676,21 @@ jobs:
           chmod +x "$sidecar"
           xattr -cr src-tauri/resources/backend || true
           codesign --force --sign - --entitlements src-tauri/macos-entitlements.plist "$sidecar"
+          # Ad-hoc codesigning rewrites the binary (it grows ~32 bytes for the
+          # embedded signature), so the size recorded by the sidecar-build job no
+          # longer matches. Refresh the manifest to describe the signed artifact;
+          # otherwise check-sidecar.mjs (beforeBuildCommand) rejects it as
+          # size-mismatched, and the bundled manifest would misreport the size.
+          SIGNED_SIDECAR="$sidecar" node -e '
+            const fs = require("node:fs");
+            const manifestPath = "src-tauri/resources/backend/sidecar-manifest.json";
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+            const signedBytes = fs.statSync(process.env.SIGNED_SIDECAR).size;
+            const previous = manifest.sidecarBinaryBytes;
+            manifest.sidecarBinaryBytes = signedBytes;
+            fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+            console.log(`Refreshed sidecarBinaryBytes ${previous} -> ${signedBytes} after codesign.`);
+          '
 
       - name: Verify updater signing secrets
         env:
