@@ -103,4 +103,4 @@ backend/tests/.scratch-templates/
 
 # Kuzu test graph artifacts
 backend/tests/graph.kuzu
-*.kuzu
+*.kuzu*

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.34 - 2026-05-24
+
+- Fixed profile items (skills, projects, experience, education, certifications) failing to delete when delete buttons were clicked rapidly. Rapid clicks fired concurrent backend deletes that contended for the Kùzu graph lock; the 1.5s lock timeout starved later requests, which silently failed so nodes were never removed (they returned in the UI on navigation and stayed in the knowledge graph).
+- Frontend now serializes deletes through a queue: rapid clicks hide each item immediately with a per-item loader, but the backend DELETE requests run one at a time, with a single profile + knowledge-graph refresh after the whole batch completes.
+- Raised the graph lock acquisition timeout from 1.5s to 30s so concurrent graph operations wait for the lock instead of failing.
+
 ## 1.0.33 - 2026-05-24
 
 - Fixed resume ingestion duplicating one job into several near-identical experience entries: experiences are now normalized and de-duplicated on a content key (role+company), and education de-dupes ignoring spacing/punctuation.

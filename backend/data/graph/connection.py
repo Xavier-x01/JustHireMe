@@ -46,7 +46,7 @@ GRAPH_PATH = default_graph_path()
 _GRAPH_ERROR = ""
 _GRAPH_DIR_READY = False
 _graph_lock = threading.RLock()
-_GRAPH_LOCK_TIMEOUT_SECONDS = 1.5
+_GRAPH_LOCK_TIMEOUT_SECONDS = 30
 _graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="jhm-kuzu")
 db = None
 conn = None

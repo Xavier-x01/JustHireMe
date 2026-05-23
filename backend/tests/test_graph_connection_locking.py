@@ -95,3 +95,11 @@ def test_ensure_connection_acquires_lock(fake_graph):
     # _ensure_connection must succeed when a connection already exists, and it
     # must do so while holding the lock (no exception, returns True).
     assert gc._ensure_connection() is True
+
+
+def test_graph_lock_timeout_is_generous_enough_for_rapid_deletes():
+    # Rapid sequential profile deletes each hold the graph lock for a heavy
+    # operation (Kuzu DETACH DELETE + vector cleanup + snapshot rewrite). The
+    # old 1.5s timeout starved later deletes — they hit GraphBusyError, which
+    # _safe_execute swallowed, so the node was never actually removed.
+    assert gc._GRAPH_LOCK_TIMEOUT_SECONDS >= 10

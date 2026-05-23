@@ -24,6 +24,8 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
   const [expandedProfileList, setExpandedProfileList] = useState(false);
   const [deletingItems, setDeletingItems] = useState<Set<string>>(new Set());
   const deleteMarkersRef = useRef<ProfileDeleteMarker[]>([]);
+  const deleteQueueRef = useRef<{ type: string; id: string; key: string; marker: ProfileDeleteMarker; previousProfile: any }[]>([]);
+  const processingDeleteRef = useRef(false);
 
   const setDeleteMarkerList = useCallback((markers: ProfileDeleteMarker[]) => {
     deleteMarkersRef.current = markers;
@@ -95,7 +97,41 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
     return () => window.removeEventListener("profile-export", exportProfile);
   }, [profile]);
 
-  const deleteItem = async (type: string, id: string) => {
+  const processDeleteQueue = useCallback(async () => {
+    if (processingDeleteRef.current) return;
+    processingDeleteRef.current = true;
+    let anySucceeded = false;
+    while (deleteQueueRef.current.length > 0) {
+      const task = deleteQueueRef.current[0];
+      try {
+        const res = await api(profileDeletePath(task.type, task.id), { method: "DELETE", timeoutMs: 120000 });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || `Delete failed (${res.status})`);
+        setProfileErr(null);
+        anySucceeded = true;
+      } catch (err: any) {
+        console.error("Delete error:", err);
+        removeDeleteMarker(task.marker);
+        setProfile(task.previousProfile);
+        setProfileErr(err?.message || "Delete failed");
+      } finally {
+        deleteQueueRef.current.shift();
+        setDeletingItems(prev => {
+          const next = new Set(prev);
+          next.delete(task.key);
+          return next;
+        });
+      }
+    }
+    processingDeleteRef.current = false;
+    // Reload profile once after all queued deletes have been processed.
+    if (anySucceeded) {
+      await fetchProfile({ suppressError: true });
+      window.dispatchEvent(new CustomEvent("graph-refresh"));
+    }
+  }, [api, fetchProfile, removeDeleteMarker]);
+
+  const deleteItem = useCallback((type: string, id: string) => {
     const key = `${type}:${id}`;
     if (!id || deletingItems.has(key)) return;
     const previousProfile = profile;
@@ -103,28 +139,9 @@ export function ProfileView({ api, setView, stats }: { api: ApiFetch; setView: (
     const markers = addDeleteMarker(marker);
     setProfile((prev: any) => prev ? applyProfileDeleteMarkers(removeProfileItem(prev, type, id), markers) : prev);
     setDeletingItems(prev => new Set(prev).add(key));
-    try {
-      const res = await api(profileDeletePath(type, id), { method: "DELETE", timeoutMs: 120000 });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || `Delete failed (${res.status})`);
-      setProfileErr(null);
-      // Keep the per-row loader on until the backend-confirmed profile is
-      // reloaded, so a deleted item can never flicker back into the UI.
-      await fetchProfile({ suppressError: true });
-      window.dispatchEvent(new CustomEvent("graph-refresh"));
-    } catch (err: any) {
-      console.error("Delete error:", err);
-      removeDeleteMarker(marker);
-      setProfile(previousProfile);
-      setProfileErr(err?.message || "Delete failed");
-    } finally {
-      setDeletingItems(prev => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
+    deleteQueueRef.current.push({ type, id, key, marker, previousProfile });
+    void processDeleteQueue();
+  }, [profile, deletingItems, addDeleteMarker, processDeleteQueue]);
 
   const saveEdit = async (type: string, id: string) => {
     if (!id) {
