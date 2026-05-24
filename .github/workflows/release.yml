@@ -425,18 +425,6 @@ jobs:
           name: release-assets-runtime-windows
           path: runtime-assets/
 
-      - name: Bundle Windows runtime pack
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $asset = "runtime-assets\JustHireMe-runtime-pack-windows.zip"
-          if (-not (Test-Path $asset)) {
-            throw "Windows runtime pack not found at $asset"
-          }
-          New-Item -ItemType Directory -Path "src-tauri\resources\runtime-pack" -Force | Out-Null
-          Copy-Item $asset "src-tauri\resources\runtime-pack\JustHireMe-runtime-pack-windows.zip" -Force
-          Write-Host "Bundled Windows runtime pack: $((Get-Item $asset).Length / 1MB) MB"
-
       - name: Run Rust unit tests
         run: cd src-tauri && cargo test --lib
 
@@ -477,7 +465,7 @@ jobs:
       - name: Smoke installed Windows package
         shell: pwsh
         env:
-          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: src-tauri\resources\runtime-pack\JustHireMe-runtime-pack-windows.zip
+          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: runtime-assets\JustHireMe-runtime-pack-windows.zip
         run: |
           $ErrorActionPreference = "Stop"
           $installer = Get-ChildItem -Path "src-tauri\target\release\bundle\nsis" -Filter "*.exe" -File -Recurse |
@@ -494,7 +482,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: src-tauri\resources\runtime-pack\JustHireMe-runtime-pack-windows.zip
+          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: runtime-assets\JustHireMe-runtime-pack-windows.zip
         run: |
           $ErrorActionPreference = "Stop"
           $currentTag = "${{ github.ref_name }}"
@@ -540,7 +528,7 @@ jobs:
         shell: pwsh
         env:
           JHM_VECTOR_RUNTIME_REQUIRED: "1"
-          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: src-tauri\resources\runtime-pack\JustHireMe-runtime-pack-windows.zip
+          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: runtime-assets\JustHireMe-runtime-pack-windows.zip
         run: |
           $ErrorActionPreference = "Stop"
           $triple = (rustc -vV | Select-String "host:").ToString().Split(" ")[1].Trim()
@@ -619,19 +607,6 @@ jobs:
         with:
           name: release-assets-runtime-macos
           path: runtime-assets/
-
-      - name: Bundle macOS runtime pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          asset="runtime-assets/JustHireMe-runtime-pack-macos.zip"
-          if [ ! -f "$asset" ]; then
-            echo "macOS runtime pack not found at $asset" >&2
-            exit 1
-          fi
-          mkdir -p src-tauri/resources/runtime-pack
-          cp "$asset" src-tauri/resources/runtime-pack/JustHireMe-runtime-pack-macos.zip
-          echo "Bundled macOS runtime pack: $(du -h "$asset" | awk '{print $1}')"
 
       - name: Prepare sidecar for Rust tests
         shell: bash
@@ -716,7 +691,7 @@ jobs:
         shell: bash
         env:
           JHM_VECTOR_RUNTIME_REQUIRED: "1"
-          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: src-tauri/resources/runtime-pack/JustHireMe-runtime-pack-macos.zip
+          JHM_SMOKE_RUNTIME_PACK_ARCHIVE: runtime-assets/JustHireMe-runtime-pack-macos.zip
         run: |
           set -euo pipefail
           app_path="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name "*.app" -type d -print -quit)"
@@ -832,19 +807,6 @@ jobs:
         with:
           name: release-assets-runtime-linux
           path: runtime-assets/
-
-      - name: Bundle Linux runtime pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          asset="runtime-assets/JustHireMe-runtime-pack-linux.zip"
-          if [ ! -f "$asset" ]; then
-            echo "Linux runtime pack not found at $asset" >&2
-            exit 1
-          fi
-          mkdir -p src-tauri/resources/runtime-pack
-          cp "$asset" src-tauri/resources/runtime-pack/JustHireMe-runtime-pack-linux.zip
-          echo "Bundled Linux runtime pack: $(du -h "$asset" | awk '{print $1}')"
 
       - name: Prepare sidecar for Rust tests
         shell: bash
