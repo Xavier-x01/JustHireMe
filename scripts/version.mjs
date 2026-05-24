@@ -194,10 +194,19 @@ function printVersions(rows) {
   }
 }
 
+function baseVersion(version) {
+  // Strip any prerelease/build suffix: 1.0.37-rc1 -> 1.0.37.
+  return version ? version.replace(/[-+].*$/, "") : version;
+}
+
 function check(expectedRaw) {
   const expected = expectedRaw ? normalizeVersion(expectedRaw) : null;
   const rows = versions();
-  const baseline = expected || rows[0].version;
+  // Manifests always carry the base X.Y.Z. A release tag may add a prerelease
+  // suffix (e.g. 1.0.37-rc1 for a release candidate) that must reconcile against
+  // that same base version rather than require the suffix in every manifest.
+  const expectedBase = expected ? baseVersion(expected) : null;
+  const baseline = expectedBase || rows[0].version;
   const mismatches = rows.filter((row) => row.version !== baseline);
 
   printVersions(rows);
@@ -206,11 +215,12 @@ function check(expectedRaw) {
     const details = mismatches.map((row) => `${row.name}=${row.version}`).join(", ");
     throw new Error(`Version mismatch. Expected ${baseline}; mismatches: ${details}`);
   }
-  if (expected && baseline !== expected) {
-    throw new Error(`Version mismatch. Expected ${expected}; found ${baseline}`);
+  if (expectedBase && baseline !== expectedBase) {
+    throw new Error(`Version mismatch. Expected ${expectedBase}; found ${baseline}`);
   }
 
-  console.log(`Version check passed: ${baseline}`);
+  const suffix = expected && expected !== expectedBase ? ` (prerelease tag ${expected})` : "";
+  console.log(`Version check passed: ${baseline}${suffix}`);
 }
 
 function bump(versionRaw) {

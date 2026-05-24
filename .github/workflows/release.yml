@@ -1032,6 +1032,15 @@ jobs:
           fi
 
           tag="${GITHUB_REF_NAME}"
+          # A prerelease tag (e.g. v1.0.37-rc1) is published as a GitHub
+          # pre-release and is NOT marked --latest, so the updater endpoint
+          # (releases/latest) keeps pointing at the last stable release and
+          # existing users are not auto-updated to a release candidate.
+          if [[ "$tag" == *-* ]]; then
+            promotion=(--prerelease)
+          else
+            promotion=(--latest)
+          fi
           if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
@@ -1040,11 +1049,11 @@ jobs:
               --repo "${GITHUB_REPOSITORY}" \
               --title "JustHireMe ${tag}" \
               --notes-file "../release-notes.md" \
-              --latest
+              "${promotion[@]}"
           else
             gh release create "$tag" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "JustHireMe ${tag}" \
               --notes-file "../release-notes.md" \
-              --latest
+              "${promotion[@]}"
           fi
