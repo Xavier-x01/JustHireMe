@@ -4,6 +4,7 @@ import importlib.util
 import os
 import platform
 import shutil
+import ssl
 import sys
 import tempfile
 import threading
@@ -325,6 +326,28 @@ def _safe_extract(archive_path: Path, extract_dir: Path) -> None:
             )
 
 
+def _https_ssl_context() -> ssl.SSLContext | None:
+    """Build an SSL context backed by certifi's CA bundle for HTTPS downloads.
+
+    The bundled sidecar Python (PyInstaller) has no system CA store wired into
+    OpenSSL on macOS, so urllib's default verification fails with
+    CERTIFICATE_VERIFY_FAILED ("unable to get local issuer certificate") when
+    fetching the runtime pack from GitHub. Windows falls back to the OS cert
+    store, which is why it works there. certifi ships a CA bundle (collected
+    into the frozen app by PyInstaller's certifi hook); point OpenSSL at it.
+    Falls back to the default context if certifi is unavailable.
+    """
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        try:
+            return ssl.create_default_context()
+        except Exception:
+            return None
+
+
 def _download(url: str, archive_path: Path) -> None:
     direct_path = Path(url)
     if direct_path.exists():
@@ -340,7 +363,8 @@ def _download(url: str, archive_path: Path) -> None:
             return
 
     request = urllib.request.Request(url, headers={"User-Agent": "JustHireMe-runtime-installer"})
-    with urllib.request.urlopen(request, timeout=60) as response, archive_path.open("wb") as target:
+    context = _https_ssl_context() if parsed.scheme == "https" else None
+    with urllib.request.urlopen(request, timeout=60, context=context) as response, archive_path.open("wb") as target:
         total = int(response.headers.get("Content-Length") or 0)
         _stream_to_file(response, target, total)
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.38 - 2026-05-25
+
+- Fixed first-run runtime pack download failing on macOS (and hardened the same path on Linux) with `SSL: CERTIFICATE_VERIFY_FAILED — unable to get local issuer certificate`. The bundled sidecar Python has no system CA store wired into OpenSSL, so the HTTPS download to GitHub could not verify the server certificate. The downloader now builds its SSL context from certifi's CA bundle, which is collected into the packaged sidecar. Windows was unaffected because it falls back to the OS certificate store.
+
+## 1.0.37 - 2026-05-25
+
+- Thin installer + first-run runtime download: the heavy runtime pack (Chromium + vector libs + embedding model) is no longer bundled into the installer. It is content-versioned and fetched on first run, then cached, so routine app updates no longer re-download it. Windows installer ~450 MB → ~102 MB; macOS ~718 MB → ~101 MB.
+
 ## 1.0.36 - 2026-05-24
 
 - Hardened resume/GitHub ingestion: PDF text extraction now preserves page line breaks, resume heuristics avoid splitting one role into multiple experience entries, education lines merge into one school record, and GitHub stack cleanup rejects repo metadata/noise like forks, maintained-through dates, package filler, and verbs.

@@ -49,6 +49,10 @@ hidden = [
     "pypdf", "markdown",
     "tenacity",
     "graph",
+    # certifi ships the CA bundle the first-run runtime-pack downloader points
+    # OpenSSL at; macOS sidecar Python has no system CA store. See
+    # data/vector/runtime.py::_https_ssl_context.
+    "certifi",
     "contracts", "contracts.services",
     "gateway", "gateway.clients", "gateway.supervisor",
     "services", "services.apps", "services.auth",
@@ -88,6 +92,9 @@ datas = (
     # C3: ship the profile import template so the /ingest/profile/template
     # endpoint can read it in a packaged build.
     + [(str(backend_root / "data" / "profile_schema_example.json"), "data")]
+    # certifi's cacert.pem must be bundled so the first-run runtime-pack
+    # downloader can verify GitHub's TLS cert on macOS.
+    + collect_data_files("certifi")
 )
 
 if include_browser:
