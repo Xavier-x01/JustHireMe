@@ -3,7 +3,7 @@
 **Effective date:** 2026-05-29
 **Applies to:** the JustHireMe desktop application ("the Software") and the JustHireMe website/download pages ("the Site").
 
-> **Note for the maintainer:** Complete the `[BRACKETED]` items (legal entity, contact email, hosting regions) before publishing. This template reflects how JustHireMe actually handles data today; verify it against your deployment and have it reviewed by a lawyer.
+> This Privacy Policy reflects how JustHireMe handles data today and is not a substitute for professional legal advice.
 
 ---
 
@@ -62,11 +62,11 @@ You can object to legitimate-interest processing; because Site analytics are ano
 
 ## 7. Sub-processors / service providers
 
-The Site relies on a small set of providers to function. Depending on deployment these may include: a static/edge host (for example, Vercel), a key-value/counter store (for example, Upstash Redis), and GitHub (release hosting and the feedback issue tracker). These providers process data on our behalf under their own terms. `[Confirm the exact providers and regions for your deployment.]`
+The Site relies on a small set of providers to function: **Vercel** (static/edge hosting), **Upstash Redis** (view/download counters), and **GitHub** (release hosting and the feedback issue tracker). These providers process data on our behalf under their own terms and privacy/security programs.
 
 ## 8. International transfers
 
-Service providers above may process data in regions including `[REGIONS — e.g., EU, US]`. Where required, transfers rely on appropriate safeguards (such as Standard Contractual Clauses) offered by those providers.
+Service providers above may process data in regions including the United States and the EU. Where required, transfers rely on appropriate safeguards (such as Standard Contractual Clauses) offered by those providers.
 
 ## 9. Data retention
 
@@ -91,7 +91,7 @@ JustHireMe is not directed to children under 16 and we do not knowingly collect 
 
 ## 13. Contact
 
-Privacy questions or data-subject requests (access, correction, deletion): email `[PRIVACY CONTACT EMAIL]`, open an issue at https://github.com/vasu-devs/JustHireMe, or follow `SECURITY.md` for sensitive reports. For local Software data, the fastest path is to manage or delete it directly in the app on your device.
+Privacy questions or data-subject requests (access, correction, deletion): email pls@justhireme.ai, open an issue at https://github.com/vasu-devs/JustHireMe, or follow `SECURITY.md` for sensitive reports. For local Software data, the fastest path is to manage or delete it directly in the app on your device.
 
 ## 14. Changes
 

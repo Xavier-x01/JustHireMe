@@ -3,7 +3,7 @@
 **Effective date:** 2026-05-29
 **Applies to:** the JustHireMe desktop application ("the Software") and the JustHireMe website and download pages ("the Site"), together "JustHireMe".
 
-> **Note for the maintainer:** Items in `[BRACKETS]` (legal entity, governing law, contact email) must be completed before publishing. These documents are operator-provided terms tailored to how JustHireMe works; they are not legal advice. Have them reviewed by a qualified lawyer for your jurisdiction before relying on them.
+> These Terms are provided by the JustHireMe maintainer and are not a substitute for professional legal advice.
 
 ---
 
@@ -80,8 +80,8 @@ You may stop using JustHireMe at any time by uninstalling it and deleting local 
 
 ## 16. Governing law and disputes
 
-These Terms are governed by the laws of `[GOVERNING JURISDICTION — e.g., England & Wales / your state / your country]`, without regard to conflict-of-law rules. The courts located in `[VENUE]` will have exclusive jurisdiction, unless mandatory local consumer law provides otherwise.
+These Terms are governed by the laws of India, without regard to conflict-of-law rules. The courts located in Rajasthan, India will have exclusive jurisdiction, unless mandatory local consumer law provides otherwise.
 
 ## 17. Contact
 
-Questions about these Terms: open an issue at https://github.com/vasu-devs/JustHireMe, see `SECURITY.md` for security matters, or email `[LEGAL CONTACT EMAIL]`.
+Questions about these Terms: email pls@justhireme.ai, open an issue at https://github.com/vasu-devs/JustHireMe, or see `SECURITY.md` for security matters.

@@ -13,11 +13,14 @@ These documents are the **single source of truth** for JustHireMe's legal and da
 
 These policies govern **use** of the distributed app and the Site. The **source code** is licensed separately under [AGPL-3.0-only](../../LICENSE), with a commercial option in [COMMERCIAL_LICENSE.md](../../COMMERCIAL_LICENSE.md). For security reporting see [SECURITY.md](../../SECURITY.md).
 
-## Before publishing — maintainer checklist
+## Maintainer notes
 
-These are operator-provided templates tailored to how JustHireMe works; **they are not legal advice.** Before relying on them:
+These are operator-provided policies tailored to how JustHireMe works; **they are not legal advice.** Current settings:
 
-- [ ] Replace every `[BRACKETED]` placeholder (legal entity, governing law/venue, contact email(s)).
-- [ ] Have them reviewed by a qualified lawyer for your jurisdiction.
+- Governing law: **India** · Venue: **courts of Rajasthan, India**
+- Contact: **pls@justhireme.ai**
+- Site sub-processors: **Vercel** (hosting), **Upstash Redis** (counters), **GitHub** (releases + feedback)
+
+Recommended: have these reviewed by a qualified lawyer for your jurisdiction, and keep the sub-processor list accurate if your deployment changes.
 
 _Last updated: 2026-05-29._
