@@ -93,6 +93,8 @@ release-assets-*/
 test_resume_output.pdf
 *.tmp
 *.bak
+.tmp-*
+profile_export.json
 
 # User-generated documents
 *.pdf
