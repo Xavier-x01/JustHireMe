@@ -115,16 +115,18 @@ async def _check_profile_service(repo: Repository) -> dict:
 
 def _check_llm(repo: Repository) -> dict:
     try:
-        from llm import _ENV_NAMES, _KEY_NAMES, resolve_config
+        from llm import _ENV_NAMES, _KEY_NAMES, provider_needs_key, resolve_config
 
         provider, key, model = resolve_config()
         cfg = repo.settings.get_settings()
         key_name = _KEY_NAMES.get(provider, "")
         env_name = _ENV_NAMES.get(provider, "")
-        configured = provider == "ollama" or bool(key)
+        configured = not provider_needs_key(provider) or bool(key)
         source = "none"
         if provider == "ollama":
             source = "local"
+        elif provider in ("claude_cli", "codex_cli"):
+            source = "subscription"
         elif key_name and cfg.get(key_name):
             source = "settings"
         elif env_name and os.environ.get(env_name):

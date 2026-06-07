@@ -184,6 +184,8 @@ _DEFAULT_MODELS: dict[str, str] = {
     "azure": "gpt-4o-mini",
     "custom":    "model-id",
     "ollama":    "llama3",
+    "claude_cli": "claude-sonnet-4-6",  # uses the user's Claude subscription via the claude CLI (no API key)
+    "codex_cli":  "gpt-5-codex",         # uses the user's ChatGPT subscription via the codex CLI (no API key)
 }
 
 _OPENAI_COMPAT_BASE_URLS: dict[str, str] = {
@@ -203,6 +205,16 @@ _OPENAI_COMPAT_BASE_URLS: dict[str, str] = {
 
 _OPENAI_COMPAT_PROVIDERS = set(_OPENAI_COMPAT_BASE_URLS) | {"azure", "custom"}
 _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+# Providers that authenticate WITHOUT an API key: ollama (local) and the
+# subscription CLIs (claude_cli / codex_cli, which use the user's own CLI login).
+# Centralized so every "needs a key?" check stays in sync.
+KEYLESS_PROVIDERS = frozenset({"ollama", "claude_cli", "codex_cli"})
+
+
+def provider_needs_key(provider: str) -> bool:
+    """True if the provider requires an API key (i.e. not ollama or a subscription CLI)."""
+    return provider not in KEYLESS_PROVIDERS
 
 
 def _validate_base_url(url: str) -> str:
@@ -445,6 +457,16 @@ def _call_llm_once(s: str, u: str, m: type[BaseModel], step: str | None = None):
             messages=[{"role": "system", "content": s}, {"role": "user", "content": u}],
         )
 
+    elif p in ("claude_cli", "codex_cli"):
+        # Subscription providers: shell out to the user's logged-in Claude/Codex CLI
+        # (no API key). The CLI returns text, so we ask for schema-shaped JSON and parse.
+        from llm import subscription_cli as _sub
+        try:
+            return _sub.complete_structured(p, s, u, m, model=model)
+        except _sub.CliError as exc:
+            _log.warning("%s subscription CLI failed (step=%s): %s", p, step, exc)
+            return _parse_fallback(u, m)
+
     else:  # ollama / default
         b = get_setting("ollama_url", "http://localhost:11434/v1")
         _log.info("ollama at %s model=%s (step=%s)", b, model, step)
@@ -559,6 +581,14 @@ def _call_raw_once(s: str, u: str, step: str | None = None) -> str:
             messages=[{"role": "system", "content": s}, {"role": "user", "content": u}],
         )
         return compat_chat_response.choices[0].message.content or ""
+
+    elif p in ("claude_cli", "codex_cli"):
+        from llm import subscription_cli as _sub
+        try:
+            return _sub.complete_text(p, s, u, model=model)
+        except _sub.CliError as exc:
+            _log.warning("%s subscription CLI failed (step=%s): %s", p, step, exc)
+            return ""
 
     else:  # ollama
         b = get_setting("ollama_url", "http://localhost:11434/v1")

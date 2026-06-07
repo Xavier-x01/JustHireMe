@@ -259,6 +259,30 @@ def create_router(scheduler: AsyncIOScheduler, ghost_tick) -> APIRouter:
     async def post_provider_models(provider: str, body: SettingsBody, repo: Repository = Depends(get_repository)):
         return await _provider_models_response(provider, body.model_dump(), repo)
 
+    @router.get("/settings/subscription-status")
+    async def subscription_status():
+        """Install + login state for the subscription-CLI providers (no API key needed)."""
+        from llm import subscription_cli
+        out = {}
+        for p in ("claude_cli", "codex_cli"):
+            s = subscription_cli.status(p)
+            if not s.get("installed"):
+                s["install_hint"] = subscription_cli.install_hint(p)
+            out[p] = s
+        return out
+
+    @router.post("/settings/subscription-login/{provider}")
+    async def subscription_login(provider: str):
+        """Launch the CLI's own browser sign-in; the UI then polls subscription-status."""
+        from llm import subscription_cli
+        if provider not in ("claude_cli", "codex_cli"):
+            raise HTTPException(status_code=400, detail="unknown subscription provider")
+        try:
+            return subscription_cli.login(provider)
+        except subscription_cli.CliNotInstalled as exc:
+            return {"started": False, "error": "not_installed",
+                    "hint": subscription_cli.install_hint(provider), "detail": str(exc)}
+
     @router.post("/settings")
     async def save_cfg(body: SettingsBody, repo: Repository = Depends(get_repository)):
         payload = {key: "" if value is None else str(value) for key, value in body.model_dump().items()}

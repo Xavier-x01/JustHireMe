@@ -357,11 +357,11 @@ def _vision_actions_openai_compatible(provider: str, model: str, key: str, b64: 
 
 
 def _vision_actions(b64: str, ctx: str) -> _Acts:
-    from llm import resolve_config
+    from llm import provider_needs_key, resolve_config
 
     provider, key, model = resolve_config("actuator")
 
-    if provider != "ollama" and not key:
+    if provider_needs_key(provider) and not key:
         raise RuntimeError(f"Vision fallback requires an API key for provider '{provider}'")
 
     _log.info("vision fallback via %s model=%s", provider, model)
