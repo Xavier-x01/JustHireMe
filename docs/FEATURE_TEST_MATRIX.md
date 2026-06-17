@@ -122,12 +122,10 @@ proves the row.
 
 ---
 
-## Verification results
+## Verification results (final run of this initiative)
 
-Filled from the final run of this initiative (see the conversation transcript
-for full command output):
-
-- `cd backend && uv run python -m pytest tests` — **PASS** (see transcript for count)
-- `cd backend && uv run ruff check .` — **PASS** (All checks passed!)
-- `npx tsc --noEmit` / `npx vitest run` / `npx vite build` — **PASS**
-- `npm run build:sidecar` / `npm run smoke:sidecar` — **PASS** (sidecar alive; sqlite/graph/vector/api ok)
+- `cd backend && uv run python -m pytest tests` — **620 passed**
+- `cd backend && uv run ruff check .` — **All checks passed!**
+- `npx tsc --noEmit` — **OK** · `npx vitest run` — **71 passed (10 files)** · `npx vite build` — **built OK**
+- `npm run build:sidecar` — **built (100.7 MB)** · `npm run smoke:sidecar` — **PASS** (app alive; sqlite/graph/vector/api ok)
+- `pytest tests/test_keyless_multisource_scan.py` — **3 passed** (no-key, non-tech, non-US, multi-source, deduped, seniority-neutral)
