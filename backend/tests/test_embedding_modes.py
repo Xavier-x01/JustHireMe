@@ -6,9 +6,11 @@ a mode is the same one ``test_embeddings.py`` uses: patch
 ``embeddings._configured_provider`` (which is what reads the
 ``embedding_provider`` setting through the settings/``get_setting`` layer).
 
-onnxruntime is not installed in this venv, so the ONNX path naturally cascades
-down to the deterministic BLAKE2b hash fallback — these tests assert that the
-fallback is graceful and still yields usable, correctly-dimensioned vectors.
+onnxruntime is installed, but the all-MiniLM-L6-v2 model file is NOT downloaded
+in the test environment (that ships via the on-demand vector-runtime pack), so
+the ONNX path cascades down to the deterministic BLAKE2b hash fallback. These
+tests assert whichever path is active is graceful and yields usable, correctly-
+dimensioned vectors — and, when the ONNX model IS present, that it is 384-dim.
 
 Sample texts are intentionally non-tech and not English-only.
 """
@@ -85,13 +87,13 @@ def test_hash_mode_empty_input(monkeypatch):
     assert embeddings.embed_texts([]) == []
 
 
-# ── ONNX mode (graceful fallback when onnxruntime is absent) ───────────────
+# ── ONNX mode (graceful fallback when the ONNX model isn't downloaded) ─────
 
 def test_onnx_mode_returns_usable_vectors(monkeypatch):
     embeddings = _force_provider(monkeypatch, "onnx")
 
-    # onnxruntime is not installed here, so active_provider() should cascade
-    # down to hash without crashing — either way embed_texts must succeed.
+    # The ONNX MiniLM model file isn't downloaded in CI, so active_provider()
+    # cascades down to hash without crashing — either way embed_texts must succeed.
     dims = embeddings.embedding_dims()
     vecs = embeddings.embed_texts(SAMPLE_TEXTS)
 
