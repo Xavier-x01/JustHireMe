@@ -3,7 +3,7 @@
 ## v0.1 OSS Readiness
 
 - Reframe the app as scraper, ranker, vector matching, and customizer.
-- Add MIT license and contributor docs.
+- Add contributor docs (project is licensed AGPL-3.0-only; see LICENSE).
 - Add source adapter contract and scraper contribution issues.
 - Add lead quality gate before saving low-value leads.
 - Improve Windows-first release instructions.
