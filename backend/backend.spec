@@ -56,10 +56,9 @@ hidden = [
     "certifi",
     "contracts", "contracts.services",
     "gateway",
-    "services", "services.apps", "services.auth",
     "graph_service", "graph_service.stats", "graph_service.helpers",
     "llm", "logger",
-] + collect_submodules("contracts") + collect_submodules("data") + collect_submodules("gateway") + collect_submodules("services") + collect_submodules("graph_service") + (
+] + collect_submodules("contracts") + collect_submodules("data") + collect_submodules("gateway") + collect_submodules("graph_service") + (
     # Domain packages loaded dynamically via import_module() (api/dependencies.py
     # DI, gateway/discovery_config.py -> discovery.targets, lazy `from graph` /
     # `from help` imports). PyInstaller's static analysis can't follow those, so

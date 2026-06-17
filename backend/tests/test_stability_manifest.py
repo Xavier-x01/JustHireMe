@@ -90,7 +90,7 @@ def test_high_risk_dependencies_are_compatible_pinned():
         "langchain-core",
         "langgraph",
         "openai",
-        "sentence-transformers",
+        "onnxruntime",
     }:
         assert by_name[package].startswith(f"{package}~=")
 
