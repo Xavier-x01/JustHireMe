@@ -105,7 +105,8 @@ proves the row.
 | Aspect | Verified by |
 |---|---|
 | Provider allowlist (all selectable providers resolve) | [test_provider_allowlist.py](../backend/tests/test_provider_allowlist.py) |
-| **Keyless providers** (ollama, claude_cli, codex_cli) via **`call_llm` + `call_raw`**, graceful fallback | **★ NEW** [test_provider_keyless_calls.py](../backend/tests/test_provider_keyless_calls.py), [test_subscription_cli.py](../backend/tests/test_subscription_cli.py), [test_subscription_retry.py](../backend/tests/test_subscription_retry.py) |
+| **Keyless providers** (ollama, claude_cli, codex_cli) via **`call_llm` + `call_raw`**, graceful fallback | **★ NEW** [test_provider_keyless_calls.py](../backend/tests/test_provider_keyless_calls.py) (mocked, CI-safe), [test_subscription_cli.py](../backend/tests/test_subscription_cli.py), [test_subscription_retry.py](../backend/tests/test_subscription_retry.py) |
+| **Live** claude_cli + codex_cli end-to-end (real subscription) | **★ NEW** opt-in `npm run smoke:llm-cli` → [test_llm_cli_live.py](../backend/tests/test_llm_cli_live.py) (skipped by default + in CI; verified live: claude+codex, `call_raw`+`call_llm`) |
 | codex_cli rejected-`-m` model → retry on account default | [test_subscription_cli.py](../backend/tests/test_subscription_cli.py) |
 | Per-step provider routing: a `{step}_provider` overrides the global, and an unset step falls back to the global | [test_provider_keyless_calls.py](../backend/tests/test_provider_keyless_calls.py) (`test_per_step_provider_override_beats_global`, `test_per_step_provider_falls_back_to_global`), [test_foundation_modules.py](../backend/tests/test_foundation_modules.py) |
 | LLM retry / transient-error classification / client cache | [test_llm_retry.py](../backend/tests/test_llm_retry.py), [test_llm_client_cache.py](../backend/tests/test_llm_client_cache.py) |
