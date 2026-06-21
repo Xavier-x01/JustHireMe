@@ -114,6 +114,41 @@ def _strip_fences(s: str) -> str:
     return s.strip()
 
 
+def _first_json_value(s: str) -> str:
+    """Return the first *balanced* {...} / [...] in s — brace-matched and
+    string-aware. A CLI sometimes appends framing after the JSON it was asked for
+    (e.g. codex emitting `{...}]}` with a stray trailing `]}`), which slips past
+    _strip_fences when the JSON starts at index 0. This trims that junk so schema
+    validation sees only the actual object."""
+    start = min([i for i in (s.find("{"), s.find("[")) if i != -1], default=-1)
+    if start < 0:
+        return s
+    open_ch = s[start]
+    close_ch = "}" if open_ch == "{" else "]"
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return s[start:i + 1]
+    return s[start:]
+
+
 # A model `-m` override that the account can't use (ChatGPT-account Codex only
 # exposes its own default model, e.g. gpt-5.5; API-only / -codex variants 400).
 _MODEL_UNSUPPORTED_HINT = "not supported when using codex"
@@ -324,13 +359,17 @@ def complete_structured(provider: str, system: str, user: str, model_cls, *, mod
         "\n\nReturn ONLY minified JSON matching this exact schema — no prose, no code fences:\n" + schema
     )
     txt = _strip_fences(complete_text(provider, system2, user, model=model, timeout=timeout))
-    try:
-        return model_cls.model_validate_json(txt)
-    except Exception as exc:
-        # A flaky CLI can emit prose instead of schema JSON. Surface it as a
-        # CliError so the caller's subscription-failure handler falls back,
-        # rather than a raw pydantic.ValidationError crashing the step.
-        raise CliError(f"{provider} returned output not matching the expected schema: {str(exc)[:200]}") from exc
+    # Try the cleaned text, then the first balanced JSON value (handles a CLI that
+    # appends trailing framing after the object, e.g. codex's stray `]}`).
+    for candidate in (txt, _first_json_value(txt)):
+        try:
+            return model_cls.model_validate_json(candidate)
+        except Exception:  # noqa: PERF203 - tiny fixed loop, clarity over micro-perf
+            continue
+    # A flaky CLI can emit prose instead of schema JSON. Surface it as a CliError
+    # so the caller's subscription-failure handler falls back, rather than a raw
+    # pydantic.ValidationError crashing the step.
+    raise CliError(f"{provider} returned output not matching the expected schema: {txt[:200]}")
 
 
 def _claude_auth_status(path: str) -> dict | None:

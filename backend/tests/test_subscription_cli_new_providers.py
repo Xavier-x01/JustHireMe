@@ -97,3 +97,28 @@ def test_status_reports_not_installed_when_missing(monkeypatch):
     for provider in ("gemini_cli", "copilot_cli"):
         s = sc.status(provider)
         assert s["installed"] is False and s["logged_in"] is False
+
+
+# ── trailing-junk JSON salvage (the codex evaluator failure in the wild) ────────
+
+def test_first_json_value_trims_trailing_framing():
+    # codex emitted a valid object then a stray "]}" — schema validation choked.
+    assert sc._first_json_value('{"score":18,"reason":"ok"}]}') == '{"score":18,"reason":"ok"}'
+
+
+def test_first_json_value_is_string_and_brace_aware():
+    tricky = '{"score":7,"reason":"has {curly} and \\"quotes\\" and [brackets]"}junk'
+    assert sc._first_json_value(tricky) == '{"score":7,"reason":"has {curly} and \\"quotes\\" and [brackets]"}'
+
+
+def test_complete_structured_salvages_trailing_junk(monkeypatch):
+    from pydantic import BaseModel
+
+    class _Score(BaseModel):
+        score: int = 0
+        reason: str = ""
+
+    # The CLI returns a valid object with codex's trailing "]}" appended.
+    monkeypatch.setattr(sc, "complete_text", lambda *a, **k: '{"score":18,"reason":"good fit"}]}')
+    out = sc.complete_structured("codex_cli", "sys", "user", _Score)
+    assert out.score == 18 and out.reason == "good fit"
