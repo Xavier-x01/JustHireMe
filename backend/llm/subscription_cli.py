@@ -165,9 +165,18 @@ def _codex_error_detail(stderr: str, stdout: str) -> str:
     """
     text = (stderr or "").strip()
     if "\n--------\n" in text:
-        text = text.split("\n--------\n")[-1]
-    detail = text[-500:].strip()
-    return detail or (stdout or "").strip()[-500:] or "codex produced no output"
+        text = text.split("\n--------\n")[-1]  # drop the banner block
+    # The transcript echoes the (often huge) prompt as the "user" turn, then
+    # codex's own "codex" turn. Keep only codex's turn — otherwise the echoed
+    # prompt floods the log (e.g. dumping the scraped RSS/markdown we asked it
+    # about) and buries the actual outcome.
+    marker = re.search(r"(?:^|\n)\s*codex\s*\n", text)
+    if marker:
+        text = text[marker.end():]
+    elif re.search(r"(?:^|\n)\s*user\s*\n", text):
+        text = ""  # codex never produced a turn — the rest is just the echoed prompt
+    detail = text.strip()[-500:]
+    return detail or (stdout or "").strip()[-500:] or "no response from codex"
 
 
 def _codex_run_once(exe_path: str, prompt: str, *, model, timeout: int) -> str:

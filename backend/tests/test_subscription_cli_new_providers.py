@@ -111,6 +111,16 @@ def test_first_json_value_is_string_and_brace_aware():
     assert sc._first_json_value(tricky) == '{"score":7,"reason":"has {curly} and \\"quotes\\" and [brackets]"}'
 
 
+def test_codex_error_detail_drops_echoed_prompt():
+    # codex echoed a huge prompt (e.g. scraped RSS) then produced no turn — the
+    # diagnostic must not dump that prompt into the log.
+    stderr = "OpenAI Codex\n--------\nmodel: x\n--------\nuser\n<rss>...big job feed...</rss>"
+    assert sc._codex_error_detail(stderr, "") == "no response from codex"
+    # when codex DID respond, surface its turn (the real error), not the prompt.
+    stderr2 = "banner\n--------\nx\n--------\nuser\n<prompt>\ncodex\nERROR: context length exceeded"
+    assert sc._codex_error_detail(stderr2, "") == "ERROR: context length exceeded"
+
+
 def test_complete_structured_salvages_trailing_junk(monkeypatch):
     from pydantic import BaseModel
 
