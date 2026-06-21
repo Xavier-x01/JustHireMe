@@ -6,6 +6,7 @@ from llm.client import (
     _KEY_NAMES,
     _OPENAI_COMPAT_BASE_URLS,
     KEYLESS_PROVIDERS,
+    SUBSCRIPTION_CLI_PROVIDERS,
     LLM_EXECUTOR,
     _resolve,
     acall_llm,
@@ -20,6 +21,7 @@ from llm.client import (
 __all__ = [
     "KEYLESS_PROVIDERS",
     "LLM_EXECUTOR",
+    "SUBSCRIPTION_CLI_PROVIDERS",
     "_DEFAULT_MODELS",
     "_ENV_NAMES",
     "_KEY_NAMES",

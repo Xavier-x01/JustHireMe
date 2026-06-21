@@ -1,0 +1,99 @@
+"""Tests for the Gemini CLI and GitHub Copilot CLI subscription providers.
+
+These CLIs aren't installed in CI, so every boundary is mocked (subprocess.run +
+shutil.which). The contract pinned here is what we CAN verify without the real
+binaries: the exact non-interactive command each provider runs, how its output is
+parsed (Gemini's JSON `response`, Copilot's plain stdout), the dispatch from
+complete_text, and graceful error classification. Live behaviour still needs the
+user's signed-in CLI.
+"""
+
+from __future__ import annotations
+
+import subprocess
+
+import pytest
+
+from llm import subscription_cli as sc
+
+
+@pytest.fixture
+def fake_run(monkeypatch):
+    """Patch subprocess.run, capturing the call and returning a scripted result."""
+    calls = {}
+
+    def _make(returncode=0, stdout="", stderr=""):
+        def _run(argv, *args, **kwargs):
+            calls["argv"] = argv
+            calls["input"] = kwargs.get("input")
+            return subprocess.CompletedProcess(argv, returncode, stdout, stderr)
+        monkeypatch.setattr(sc.subprocess, "run", _run)
+        return calls
+
+    return _make
+
+
+def test_exe_map_and_install_hints():
+    assert sc._exe("gemini_cli") == "gemini"
+    assert sc._exe("copilot_cli") == "copilot"
+    assert sc.install_hint("gemini_cli")["name"] == "Gemini CLI"
+    assert "@google/gemini-cli" in sc.install_hint("gemini_cli")["cmd"]
+    assert sc.install_hint("copilot_cli")["name"] == "GitHub Copilot CLI"
+    assert "@github/copilot" in sc.install_hint("copilot_cli")["cmd"]
+
+
+def test_gemini_exec_runs_headless_json_and_parses_response(fake_run):
+    calls = fake_run(stdout='{"response": "extracted text", "stats": {"tokens": 12}}')
+    out = sc._gemini_exec("/x/gemini", "SYS", "USER", model="gemini-2.5-pro", timeout=30)
+    assert out == "extracted text"
+    assert calls["argv"] == ["/x/gemini", "--output-format", "json", "-m", "gemini-2.5-pro"]
+    assert calls["input"] == "SYS\n\nUSER"  # prompt on stdin, not argv
+
+
+def test_gemini_omits_model_flag_when_default(fake_run):
+    calls = fake_run(stdout='{"response": "ok"}')
+    sc._gemini_exec("/x/gemini", "", "hi", model="", timeout=30)
+    assert "-m" not in calls["argv"]  # "" => use the plan's default model
+
+
+def test_gemini_plain_text_fallback(fake_run):
+    fake_run(stdout="just text, not json")
+    assert sc._gemini_exec("/x/gemini", "", "hi", model=None, timeout=30) == "just text, not json"
+
+
+def test_gemini_error_field_is_classified_as_login(fake_run):
+    fake_run(stdout='{"error": {"message": "Please sign in to your Google account"}}')
+    with pytest.raises(sc.CliNotLoggedIn):
+        sc._gemini_exec("/x/gemini", "", "hi", model=None, timeout=30)
+
+
+def test_copilot_exec_runs_programmatic_mode(fake_run):
+    calls = fake_run(stdout="copilot answer")
+    out = sc._copilot_exec("/x/copilot", "SYS", "USER", model="claude-sonnet-4.5", timeout=30)
+    assert out == "copilot answer"
+    assert calls["argv"] == ["/x/copilot", "-p", "SYS\n\nUSER", "-s", "--no-ask-user", "--model", "claude-sonnet-4.5"]
+
+
+def test_copilot_nonzero_exit_raises(fake_run):
+    fake_run(returncode=1, stderr="not logged in to GitHub")
+    with pytest.raises(sc.CliNotLoggedIn):
+        sc._copilot_exec("/x/copilot", "", "hi", model=None, timeout=30)
+
+
+def test_complete_text_dispatches_to_the_right_cli(fake_run, monkeypatch):
+    monkeypatch.setattr(sc.shutil, "which", lambda exe: f"/x/{exe}")
+    # gemini -> JSON response
+    calls = fake_run(stdout='{"response": "G"}')
+    assert sc.complete_text("gemini_cli", "s", "u") == "G"
+    assert calls["argv"][0] == "/x/gemini" and "--output-format" in calls["argv"]
+    # copilot -> plain stdout
+    calls = fake_run(stdout="C")
+    assert sc.complete_text("copilot_cli", "s", "u") == "C"
+    assert calls["argv"][0] == "/x/copilot" and "-p" in calls["argv"]
+
+
+def test_status_reports_not_installed_when_missing(monkeypatch):
+    monkeypatch.setattr(sc.shutil, "which", lambda exe: None)
+    for provider in ("gemini_cli", "copilot_cli"):
+        s = sc.status(provider)
+        assert s["installed"] is False and s["logged_in"] is False

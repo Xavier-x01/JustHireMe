@@ -285,9 +285,9 @@ def create_router(scheduler: AsyncIOScheduler, ghost_tick) -> APIRouter:
     @router.get("/settings/subscription-status")
     async def subscription_status():
         """Install + login state for the subscription-CLI providers (no API key needed)."""
-        from llm import subscription_cli
+        from llm import SUBSCRIPTION_CLI_PROVIDERS, subscription_cli
         out = {}
-        for p in ("claude_cli", "codex_cli"):
+        for p in sorted(SUBSCRIPTION_CLI_PROVIDERS):
             s = subscription_cli.status(p)
             if not s.get("installed"):
                 s["install_hint"] = subscription_cli.install_hint(p)
@@ -297,8 +297,8 @@ def create_router(scheduler: AsyncIOScheduler, ghost_tick) -> APIRouter:
     @router.post("/settings/subscription-login/{provider}")
     async def subscription_login(provider: str):
         """Launch the CLI's own browser sign-in; the UI then polls subscription-status."""
-        from llm import subscription_cli
-        if provider not in ("claude_cli", "codex_cli"):
+        from llm import SUBSCRIPTION_CLI_PROVIDERS, subscription_cli
+        if provider not in SUBSCRIPTION_CLI_PROVIDERS:
             raise HTTPException(status_code=400, detail="unknown subscription provider")
         try:
             return subscription_cli.login(provider)

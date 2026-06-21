@@ -17,7 +17,7 @@ export interface Cfg {
   azure_openai_api_key: string; azure_model: string; azure_openai_endpoint: string;
   custom_api_key: string; custom_model: string; custom_base_url: string;
   ollama_url: string;
-  claude_cli_model: string; codex_cli_model: string;
+  claude_cli_model: string; codex_cli_model: string; gemini_cli_model: string; copilot_cli_model: string;
   scout_provider: string;     scout_api_key: string;     scout_model: string;
   evaluator_provider: string; evaluator_api_key: string; evaluator_model: string;
   generator_provider: string; generator_api_key: string; generator_model: string;
@@ -46,7 +46,7 @@ export const EMPTY: Cfg = {
   azure_openai_api_key: "", azure_model: "gpt-4o-mini", azure_openai_endpoint: "",
   custom_api_key: "", custom_model: "model-id", custom_base_url: "https://api.openai.com/v1",
   ollama_url: "http://localhost:11434/v1",
-  claude_cli_model: "claude-sonnet-4-6", codex_cli_model: "",
+  claude_cli_model: "claude-sonnet-4-6", codex_cli_model: "", gemini_cli_model: "", copilot_cli_model: "",
   scout_provider: "", scout_api_key: "", scout_model: "",
   evaluator_provider: "", evaluator_api_key: "", evaluator_model: "",
   generator_provider: "", generator_api_key: "", generator_model: "",
@@ -64,6 +64,8 @@ export const EMPTY: Cfg = {
 export const PROVIDERS = [
   { id: "claude_cli", label: "Claude · sub", tone: "purple", sub: "Your plan" },
   { id: "codex_cli",  label: "Codex · sub",  tone: "blue",   sub: "Your plan" },
+  { id: "gemini_cli", label: "Gemini · sub", tone: "orange", sub: "Your plan" },
+  { id: "copilot_cli", label: "Copilot · sub", tone: "green", sub: "Your plan" },
   { id: "gemini",    label: "Gemini",    tone: "green",  sub: "2.5 Flash" },
   { id: "deepseek",  label: "DeepSeek",  tone: "teal",   sub: "V3 / R1"   },
   { id: "nvidia",    label: "NVIDIA",    tone: "green",  sub: "GLM / NIM" },
@@ -88,7 +90,7 @@ export const PROVIDERS = [
 ];
 
 // Providers that use the user's own logged-in CLI subscription (no API key).
-export const SUBSCRIPTION_PROVIDERS = new Set(["claude_cli", "codex_cli"]);
+export const SUBSCRIPTION_PROVIDERS = new Set(["claude_cli", "codex_cli", "gemini_cli", "copilot_cli"]);
 export const isSubscriptionProvider = (id: string) => SUBSCRIPTION_PROVIDERS.has(id);
 
 export const MODEL_HINTS: Record<string, string[]> = {
@@ -120,6 +122,9 @@ export const MODEL_HINTS: Record<string, string[]> = {
   // (recommended). Backend auto-falls-back to the account default if an
   // override is rejected.
   codex_cli:  ["", "gpt-5.5"],
+  // "" = let the CLI use your plan's default model.
+  gemini_cli: ["", "gemini-2.5-pro", "gemini-2.5-flash"],
+  copilot_cli: ["", "claude-sonnet-4.5", "gpt-5.3-codex", "claude-haiku-4.5"],
 };
 
 export const STEPS = [
@@ -206,6 +211,8 @@ export const GLOBAL_MODEL_FIELD: Record<string, keyof Cfg> = {
   custom: "custom_model",
   claude_cli: "claude_cli_model",
   codex_cli: "codex_cli_model",
+  gemini_cli: "gemini_cli_model",
+  copilot_cli: "copilot_cli_model",
 };
 
 const SECRET_MASK = "__JHM_SECRET_SET__";
@@ -427,8 +434,13 @@ export function SubscriptionNote({ provider, status, onSignIn, busy }: {
   onSignIn?: () => void;
   busy?: boolean;
 }) {
-  const cli = provider === "claude_cli" ? "claude" : "codex";
-  const plan = provider === "claude_cli" ? "Claude (Pro / Max)" : "ChatGPT (Plus / Pro)";
+  const cli = ({ claude_cli: "claude", codex_cli: "codex", gemini_cli: "gemini", copilot_cli: "copilot" } as Record<string, string>)[provider] || provider;
+  const plan = ({
+    claude_cli: "Claude (Pro / Max)",
+    codex_cli: "ChatGPT (Plus / Pro)",
+    gemini_cli: "Google account / Gemini",
+    copilot_cli: "GitHub Copilot",
+  } as Record<string, string>)[provider] || "subscription";
 
   let inner: React.ReactNode;
   if (!status) {

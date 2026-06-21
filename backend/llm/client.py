@@ -225,6 +225,8 @@ _DEFAULT_MODELS: dict[str, str] = {
     "ollama":    "llama3",
     "claude_cli": "claude-sonnet-4-6",  # uses the user's Claude subscription via the claude CLI (no API key)
     "codex_cli":  "gpt-5.5",             # ChatGPT-account Codex only allows its own default model (gpt-5.5 as of 2026-06); codex falls back to the account default if this is unavailable
+    "gemini_cli": "",                    # uses the user's Google account / Gemini plan via the gemini CLI; "" = the CLI's own default model
+    "copilot_cli": "",                   # uses the user's GitHub Copilot subscription via the copilot CLI; "" = the CLI's own default model
 }
 
 _OPENAI_COMPAT_BASE_URLS: dict[str, str] = {
@@ -248,7 +250,11 @@ _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 # Providers that authenticate WITHOUT an API key: ollama (local) and the
 # subscription CLIs (claude_cli / codex_cli, which use the user's own CLI login).
 # Centralized so every "needs a key?" check stays in sync.
-KEYLESS_PROVIDERS = frozenset({"ollama", "claude_cli", "codex_cli"})
+# Subscription-CLI providers: shell out to a coding-assistant CLI the user has
+# already signed into with their OWN plan (no API key). Add new ones here AND in
+# llm/subscription_cli.py (_EXE + complete_text branch + status/login).
+SUBSCRIPTION_CLI_PROVIDERS = frozenset({"claude_cli", "codex_cli", "gemini_cli", "copilot_cli"})
+KEYLESS_PROVIDERS = frozenset({"ollama"}) | SUBSCRIPTION_CLI_PROVIDERS
 
 
 def provider_needs_key(provider: str) -> bool:
@@ -535,9 +541,10 @@ def _call_llm_once(s: str, u: str, m: type[BaseModel], step: str | None = None):
             messages=[{"role": "system", "content": s}, {"role": "user", "content": u}],
         )
 
-    elif p in ("claude_cli", "codex_cli"):
-        # Subscription providers: shell out to the user's logged-in Claude/Codex CLI
-        # (no API key). The CLI returns text, so we ask for schema-shaped JSON and parse.
+    elif p in SUBSCRIPTION_CLI_PROVIDERS:
+        # Subscription providers: shell out to the user's logged-in CLI (Claude /
+        # Codex / Gemini / Copilot — no API key). The CLI returns text, so we ask
+        # for schema-shaped JSON and parse.
         from llm import subscription_cli as _sub
         return _subscription_call(
             p, lambda: _sub.complete_structured(p, s, u, m, model=model),
@@ -654,7 +661,7 @@ def _call_raw_once(s: str, u: str, step: str | None = None) -> str:
         )
         return compat_chat_response.choices[0].message.content or ""
 
-    elif p in ("claude_cli", "codex_cli"):
+    elif p in SUBSCRIPTION_CLI_PROVIDERS:
         from llm import subscription_cli as _sub
         return _subscription_call(
             p, lambda: _sub.complete_text(p, s, u, model=model), lambda: "", step=step,

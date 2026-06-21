@@ -67,8 +67,19 @@ class CliModelUnsupported(CliError):
     """The requested -m model is rejected by the account (retry without it)."""
 
 
+# Subscription-CLI provider -> the executable to shell out to. Each is a coding
+# agent / assistant CLI the user has already signed into with their OWN plan
+# (Claude Pro/Max, ChatGPT, Google account/Gemini, GitHub Copilot) — no API key.
+_EXE = {
+    "claude_cli": "claude",
+    "codex_cli": "codex",
+    "gemini_cli": "gemini",
+    "copilot_cli": "copilot",
+}
+
+
 def _exe(provider: str) -> str:
-    return "claude" if provider == "claude_cli" else "codex"
+    return _EXE.get(provider, "codex")
 
 
 def _child_env() -> dict:
@@ -201,6 +212,67 @@ def _codex_exec(exe_path: str, prompt: str, *, model, timeout: int) -> str:
         raise
 
 
+def _gemini_exec(exe_path: str, system: str, user: str, *, model, timeout: int) -> str:
+    """Gemini CLI in headless mode: `gemini --output-format json [-m M]`, prompt on
+    STDIN (non-TTY stdin = non-interactive), clean text read from the JSON
+    `response` field. Auth is the user's Google account / Gemini plan OAuth."""
+    prompt = (system + "\n\n" + user) if system else user
+    argv = [exe_path, "--output-format", "json"]
+    if model:
+        argv += ["-m", str(model)]
+    try:
+        r = subprocess.run(
+            argv, input=prompt, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", env=_child_env(), timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CliTimeout(f"gemini_cli timed out after {timeout}s") from exc
+    except FileNotFoundError as exc:
+        raise CliNotInstalled("gemini CLI vanished from PATH") from exc
+    out = (r.stdout or "").strip()
+    # Preferred path: structured JSON {"response": "...", "error": {...}}.
+    try:
+        parsed = json.loads(out)
+        if isinstance(parsed, dict):
+            if parsed.get("error"):
+                raise _classify(f"{parsed.get('error')} {r.stderr or ''}")
+            text = str(parsed.get("response") or "").strip()
+            if text:
+                return text
+    except (ValueError, TypeError):
+        pass  # not JSON — fall through to raw stdout / error handling
+    if r.returncode != 0:
+        raise _classify(r.stderr or out or "gemini returned no output")
+    if not out:
+        raise _classify(r.stderr or "gemini returned no output")
+    return out
+
+
+def _copilot_exec(exe_path: str, system: str, user: str, *, model, timeout: int) -> str:
+    """GitHub Copilot CLI programmatic mode: `copilot -p <prompt> -s --no-ask-user
+    [--model M]`. `-s` prints only the response; `--no-ask-user` stops it pausing
+    for input in a headless run. Auth is the user's GitHub Copilot subscription."""
+    prompt = (system + "\n\n" + user) if system else user
+    argv = [exe_path, "-p", prompt, "-s", "--no-ask-user"]
+    if model:
+        argv += ["--model", str(model)]
+    try:
+        r = subprocess.run(
+            argv, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", env=_child_env(), timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CliTimeout(f"copilot_cli timed out after {timeout}s") from exc
+    except FileNotFoundError as exc:
+        raise CliNotInstalled("copilot CLI vanished from PATH") from exc
+    out = (r.stdout or "").strip()
+    if r.returncode != 0:
+        raise _classify(r.stderr or out or "copilot call failed")
+    if not out:
+        raise _classify(r.stderr or "copilot returned no output")
+    return out
+
+
 def complete_text(provider: str, system: str, user: str, *, model=None, timeout: int = _DEFAULT_TIMEOUT) -> str:
     """Return a free-form completion from the user's subscription CLI."""
     exe_path = shutil.which(_exe(provider))
@@ -212,6 +284,10 @@ def complete_text(provider: str, system: str, user: str, *, model=None, timeout:
     if provider == "codex_cli":
         prompt = (system + "\n\n" + user) if system else user
         return _codex_exec(exe_path, prompt, model=model, timeout=timeout)
+    if provider == "gemini_cli":
+        return _gemini_exec(exe_path, system, user, model=model, timeout=timeout)
+    if provider == "copilot_cli":
+        return _copilot_exec(exe_path, system, user, model=model, timeout=timeout)
 
     # claude_cli: system prompt as a flag, user content on stdin, JSON output.
     argv = [exe_path, "-p", "--system-prompt", system, "--output-format", "json"]
@@ -280,6 +356,39 @@ def _codex_logged_in(path: str) -> bool:
     return os.path.exists(os.path.join(os.path.expanduser("~"), ".codex", "auth.json"))
 
 
+def _gemini_logged_in() -> bool:
+    """Gemini CLI stores its Google-account OAuth under ~/.gemini. (A
+    GEMINI_API_KEY/GOOGLE_API_KEY would also work, but that's the API-key path.)"""
+    home = os.path.expanduser("~")
+    gemini_dir = os.path.join(home, ".gemini")
+    return (
+        os.path.exists(os.path.join(gemini_dir, "oauth_creds.json"))
+        or os.path.exists(os.path.join(gemini_dir, "google_accounts.json"))
+        or os.path.isdir(gemini_dir)
+        or bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    )
+
+
+def _copilot_logged_in() -> bool:
+    """Copilot CLI authenticates with the user's GitHub Copilot subscription via a
+    GitHub token (env or the gh CLI's stored login)."""
+    if any(os.environ.get(v) for v in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")):
+        return True
+    home = os.path.expanduser("~")
+    if os.path.exists(os.path.join(home, ".config", "gh", "hosts.yml")) or os.path.isdir(os.path.join(home, ".copilot")):
+        return True
+    try:
+        gh = shutil.which("gh")
+        if gh:
+            r = subprocess.run([gh, "auth", "status"], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", env=_child_env(), timeout=20)
+            if r.returncode == 0:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def status(provider: str) -> dict:
     """Install + login state for the settings UI. For Claude, uses `claude auth
     status` (rich: email + plan); falls back to credential-file heuristics."""
@@ -298,6 +407,10 @@ def status(provider: str) -> dict:
             info["logged_in"] = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")) \
                 or os.path.exists(os.path.join(home, ".claude", ".credentials.json")) \
                 or os.path.isdir(os.path.join(home, ".claude"))
+    elif provider == "gemini_cli":
+        info["logged_in"] = _gemini_logged_in()
+    elif provider == "copilot_cli":
+        info["logged_in"] = _copilot_logged_in()
     else:
         info["logged_in"] = _codex_logged_in(path)
     return info
@@ -311,7 +424,14 @@ def login(provider: str) -> dict:
     path = shutil.which(exe)
     if not path:
         raise CliNotInstalled(f"{exe} CLI not found — install it first")
-    argv = [path, "auth", "login"] if provider == "claude_cli" else [path, "login"]
+    if provider == "claude_cli":
+        argv = [path, "auth", "login"]
+    elif provider == "codex_cli":
+        argv = [path, "login"]
+    else:
+        # gemini / copilot: launching the CLI itself runs its sign-in flow
+        # (Google account OAuth / GitHub Copilot device auth) in the new console.
+        argv = [path]
     kwargs = {"env": _child_env()}
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
@@ -329,6 +449,14 @@ def install_hint(provider: str) -> dict:
         return {"name": "Claude Code", "cmd": "npm install -g @anthropic-ai/claude-code",
                 "url": "https://docs.claude.com/en/docs/claude-code/setup",
                 "after": "then click Sign in (runs: claude auth login)"}
+    if provider == "gemini_cli":
+        return {"name": "Gemini CLI", "cmd": "npm install -g @google/gemini-cli",
+                "url": "https://github.com/google-gemini/gemini-cli",
+                "after": "then click Sign in and authorize your Google account"}
+    if provider == "copilot_cli":
+        return {"name": "GitHub Copilot CLI", "cmd": "npm install -g @github/copilot",
+                "url": "https://docs.github.com/copilot/concepts/agents/about-copilot-cli",
+                "after": "then sign in with your GitHub Copilot account"}
     return {"name": "Codex CLI", "cmd": "npm install -g @openai/codex",
             "url": "https://developers.openai.com/codex/cli",
             "after": "then click Sign in (runs: codex login)"}
