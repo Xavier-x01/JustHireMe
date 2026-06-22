@@ -6,13 +6,16 @@ needed by MCP clients: initialize, tools/list, and tools/call.
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import sys
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
-from agents.evaluator import score as score_fit
-from agents.lead_intel import (
+from core.version import APP_VERSION
+from ranking.evaluator import score as score_fit
+from discovery.lead_intel import (
     budget_from_text,
     company_from_text,
     location_from_text,
@@ -20,7 +23,7 @@ from agents.lead_intel import (
     tech_stack_from_text,
     urgency_from_text,
 )
-from agents.quality_gate import evaluate_lead_quality
+from discovery.quality_gate import evaluate_lead_quality
 
 
 Json = dict[str, Any]
@@ -145,7 +148,7 @@ def _handle(request: Json) -> Json | None:
             result = {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "justhireme", "version": "0.1.0"},
+                "serverInfo": {"name": "justhireme", "version": APP_VERSION},
             }
         elif method == "notifications/initialized":
             return None
@@ -162,6 +165,7 @@ def _handle(request: Json) -> Json | None:
             raise ValueError(f"Unsupported method: {method}")
         return {"jsonrpc": "2.0", "id": req_id, "result": result}
     except Exception as exc:
+        logging.getLogger(__name__).warning('suppressed exception in backend/mcp_server.py:_handle: %s', exc)
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -177,6 +181,7 @@ def main() -> None:
             request = json.loads(line)
             response = _handle(request)
         except Exception as exc:
+            logging.getLogger(__name__).warning('suppressed exception in backend/mcp_server.py:main: %s', exc)
             response = {
                 "jsonrpc": "2.0",
                 "id": None,

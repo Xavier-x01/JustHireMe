@@ -7,6 +7,7 @@ from unittest import mock
 
 # ── Must run before any backend module is imported ───────────────────────────
 os.environ["LOCALAPPDATA"] = str(Path(__file__).resolve().parent)
+os.environ["JHM_APP_DATA_DIR"] = str(Path(__file__).resolve().parent)
 os.makedirs = lambda *_args, **_kwargs: None
 
 
@@ -110,15 +111,46 @@ class TestGraphStructure(unittest.TestCase):
         nodes = getattr(graph, "nodes", {})
         self.assertIn("evaluate", nodes)
 
+    def test_vector_label_guard_rejects_error_rows(self):
+        from graph_service.helpers import is_bad_vector_label
+
+        self.assertTrue(is_bad_vector_label("404: NOT_FOUND Code: NOT_FOUND"))
+        self.assertTrue(is_bad_vector_label("Failed to fetch project metadata"))
+        self.assertFalse(is_bad_vector_label("DryRunVisualised"))
+
+    def test_profile_graph_filter_removes_stale_deleted_profile_nodes(self):
+        from graph_service.stats import _filter_stale_profile_nodes, _profile_snapshot_graph
+
+        graph = {
+            "nodes": [
+                {"id": "candidate:old", "label": "Candidate", "type": "Candidate"},
+                {"id": "project:deleted", "label": "Deleted Project", "type": "Project"},
+                {"id": "skill:orphan", "label": "SQLite", "type": "Skill", "subtitle": "project_stack"},
+                {"id": "job:1", "label": "Job", "type": "JobLead"},
+            ],
+            "edges": [
+                {"source": "candidate:old", "target": "project:deleted", "type": "BUILT"},
+                {"source": "candidate:old", "target": "skill:orphan", "type": "HAS_SKILL"},
+                {"source": "job:1", "target": "skill:orphan", "type": "REQUIRES"},
+            ],
+        }
+        profile_graph = _profile_snapshot_graph({"n": "Candidate", "skills": [], "projects": [], "exp": []})
+
+        filtered = _filter_stale_profile_nodes(graph, profile_graph)
+
+        self.assertNotIn("project:deleted", {node["id"] for node in filtered["nodes"]})
+        self.assertNotIn("skill:orphan", {node["id"] for node in filtered["nodes"]})
+        self.assertEqual(filtered["edges"], [])
+
 
 class TestGraphInvoke(unittest.TestCase):
     def setUp(self):
         self.patches = []
 
-        p_eval = mock.patch("agents.evaluator.score", return_value=_EVAL_RESULT)
-        p_gen = mock.patch("agents.generator.run_package", return_value=_GEN_RESULT)
-        p_update = mock.patch("db.client.update_lead_score")
-        p_save = mock.patch("db.client.save_asset_package")
+        p_eval = mock.patch("ranking.evaluator.score", return_value=_EVAL_RESULT)
+        p_gen = mock.patch("generation.generator.run_package", return_value=_GEN_RESULT)
+        p_update = mock.patch("data.sqlite.leads.update_lead_score")
+        p_save = mock.patch("data.sqlite.leads.save_asset_package")
 
         for p in (p_eval, p_gen, p_update, p_save):
             self.patches.append(p)
@@ -192,8 +224,8 @@ class TestGraphInvoke(unittest.TestCase):
         }
 
         # Re-patch evaluator inside this test with a lower score.
-        with mock.patch("agents.evaluator.score", return_value=low_eval) as _eval_mock, \
-             mock.patch("agents.generator.run_package") as gen_mock:
+        with mock.patch("ranking.evaluator.score", return_value=low_eval) as _eval_mock, \
+             mock.patch("generation.generator.run_package") as gen_mock:
             graph = build_eval_graph()
             result = graph.invoke(self._make_state())
             gen_mock.assert_not_called()

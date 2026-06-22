@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
 
 
 class S(BaseModel):
@@ -12,23 +11,29 @@ class E(BaseModel):
     co:     str
     period: str
     d:      str
-    s:      List[str] = Field(default_factory=list)
+    s:      list[str] = Field(default_factory=list)
 
 
 class P(BaseModel):
     title:  str
-    stack:  List[str]       = Field(default_factory=list)
-    repo:   Optional[str]   = None
+    stack:  list[str]       = Field(default_factory=list)
+    repo:   str | None   = None
     impact: str             = ""
-    s:      List[str]       = Field(default_factory=list)
+    s:      list[str]       = Field(default_factory=list)
 
 
 class C(BaseModel):
-    n:        str
+    # Defaulted (not required) so an empty LLM fallback is still a valid model;
+    # the deterministic parser / merge fills in the real name when the LLM is
+    # unavailable. A required field here crashes downstream `.n` access.
+    n:        str      = ""
     s:        str      = ""
-    skills:   List[S]  = Field(default_factory=list)
-    exp:      List[E]  = Field(default_factory=list)
-    projects: List[P]  = Field(default_factory=list)
-    certifications: List[str] = Field(default_factory=list)
-    education:      List[str] = Field(default_factory=list)
-    achievements:   List[str] = Field(default_factory=list)
+    # Free-text location from the CV (city/region/country), used to target
+    # discovery to the candidate's region. Optional and field-agnostic.
+    loc:      str      = ""
+    skills:   list[S]  = Field(default_factory=list)
+    exp:      list[E]  = Field(default_factory=list)
+    projects: list[P]  = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    education:      list[str] = Field(default_factory=list)
+    achievements:   list[str] = Field(default_factory=list)

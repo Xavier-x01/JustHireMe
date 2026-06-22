@@ -1,6 +1,14 @@
 export type ConnSt = "disconnected" | "connecting" | "connected";
-export type View = "apply" | "dashboard" | "inbox" | "pipeline" | "graph" | "activity" | "profile" | "ingestion";
 export type PipelineTab = "all" | "hot" | "found" | "evaluated" | "generated" | "applied" | "discarded";
+export type PipelineViewId =
+  | "pipeline"
+  | "pipeline-hot"
+  | "pipeline-found"
+  | "pipeline-evaluated"
+  | "pipeline-generated"
+  | "pipeline-applied"
+  | "pipeline-discarded";
+export type View = "apply" | "dashboard" | PipelineViewId | "graph" | "activity" | "profile" | "ingestion";
 export type LeadSort = "recommended" | "newest" | "signal" | "match" | "company";
 export type SeniorityFilter = "all" | "beginner" | "fresher" | "junior" | "mid" | "senior" | "unknown";
 
@@ -57,13 +65,52 @@ export interface Lead {
 export interface GraphStats {
   candidate: number; skill: number; project: number;
   experience: number; joblead: number;
+  available?: boolean; status?: "live" | "degraded"; error?: string;
+  loading?: boolean; loaded?: boolean; request_error?: string;
+  sync?: { status?: string; synced?: number; refreshed_at?: string; error?: string };
+  profile?: Record<string, any>;
+  graph?: {
+    nodes: { id: string; label: string; type: string; subtitle?: string }[];
+    edges: { source: string; target: string; type: string }[];
+    available?: boolean;
+    error?: string;
+  };
+  embedding?: {
+    available?: boolean;
+    points: {
+      id: string;
+      label: string;
+      type: string;
+      x: number;
+      y: number;
+      z?: number;
+      subtitle?: string;
+      text?: string;
+      source?: string;
+      stack?: string[] | string;
+    }[];
+    error?: string;
+  };
 }
 export interface LogLine {
   id: number; ts: string; msg: string; src: string;
   kind: "heartbeat" | "agent" | "system";
 }
 
-export type ApiFetch = (path: string, opts?: RequestInit) => Promise<Response>;
+export interface OperationProgress {
+  active: boolean;
+  mode: "scan" | "reevaluate" | "cleanup" | null;
+  total: number;
+  completed: number;
+  current: string;
+  updatedAt: number;
+}
+
+export type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
+export type ApiFetch = (path: string, opts?: ApiFetchOptions) => Promise<Response>;
 
 export interface FormField {
   type: string;
@@ -81,4 +128,23 @@ export interface FormReadResult {
   fields: FormField[];
   unmatched_labels: string[];
   error: string | null;
+}
+
+// Pipeline counts derived from the live leads list (built in App, consumed by Sidebar).
+// The index signature allows dynamic lookup by a nav item's countKey.
+export interface LeadCounts {
+  total: number;
+  hot: number;
+  discovered: number;
+  evaluated: number;
+  evaluating: number;
+  tailoring: number;
+  approved: number;
+  ready: number;
+  applied: number;
+  discarded: number;
+  interviewing: number;
+  accepted: number;
+  rejected: number;
+  [key: string]: number;
 }

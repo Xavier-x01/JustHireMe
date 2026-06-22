@@ -46,7 +46,13 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+coverage/
+htmlcov/
+backend/.coverage
 backend/.hf-cache/
+backend/.pyinstaller-cache/
+backend/build_cache/
 backend/tests/tmp*/
 
 # Rust / Tauri
@@ -63,6 +69,7 @@ src-tauri/resources/bin/ms-playwright/
 src-tauri/resources/backend/
 src-tauri/resources/backend-*/
 src-tauri/resources/backend-*
+src-tauri/resources/sidecar-internal/
 
 # Local data / DBs
 *.db
@@ -73,14 +80,49 @@ src-tauri/resources/backend-*
 JustHireMe/
 BoomBoom/
 scratch/
+# Self-contained scraper export, kept locally for reuse elsewhere — not part of this repo
+ScraperAgent/
 
 # Generated artifacts and local analysis output
+graphify-out/
 .codex-temp-appdata/
+.codex-temp-sidecar/
+.codex-temp-vector-runtime/
+.codex-temp-runtime-pack/
 .codex-video-analysis/
+release-assets/
+release-assets-*/
 test_resume_output.pdf
 *.tmp
 *.bak
+.tmp-*
+profile_export.json
 
 # User-generated documents
 *.pdf
 !docs/**/*.pdf
+
+# Test scratch + migration lock artifacts
+backend/tests/.scratch-templates/
+*.migration.lock
+
+# Kuzu test graph artifacts
+backend/tests/graph.kuzu
+*.kuzu*
+
+# Local pytest basetemp fallback (used when %TEMP%/pytest-of-<user> is broken)
+backend/.pytest-basetemp/
+.claude/settings.local.json
+.claude/skills-guide.md
+.codegraph/
+
+# Local dev-harness scratch / caches / logs (regenerated; never commit)
+.codex
+.codex-*
+.local-*
+.uv-cache*
+.tmp
+.tmp-fiber
+
+# Reference-only: external job-scraper used for study, never shipped/committed (US-portal-specific; JustHireMe stays field/location-agnostic)
+AgentRosterJobScraper/

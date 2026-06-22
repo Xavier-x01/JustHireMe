@@ -16,6 +16,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      /* Apply the saved theme before first paint to avoid a flash of the wrong
+         theme. Mirrors src/shared/lib/theme.ts (kept tiny + dependency-free). */
+      (function () {
+        try {
+          var pref = localStorage.getItem("jhm-theme") || "system";
+          var dark = pref === "dark" || (pref === "system"
+            && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var theme = dark ? "dark" : "light";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) { /* no-op: defaults to light via CSS */ }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

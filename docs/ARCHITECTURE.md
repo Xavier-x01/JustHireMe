@@ -42,13 +42,14 @@ The Python backend in `backend/` is responsible for:
 
 Important modules:
 
-- `backend/agents/free_scout.py`: direct/free source scraping
-- `backend/agents/scout.py`: broader source scraping
-- `backend/agents/quality_gate.py`: pre-save quality checks
-- `backend/agents/scoring_engine.py`: deterministic fit scoring
-- `backend/agents/semantic.py`: LanceDB semantic matching
-- `backend/agents/generator.py`: resume, cover letter, and outreach package generation
-- `backend/db/client.py`: SQLite, Kuzu, LanceDB access helpers
+- `backend/automation/free_scout.py`: direct/free source scraping
+- `backend/automation/scout.py`: broader source scraping orchestration
+- `backend/discovery/quality_gate.py`: pre-save quality checks
+- `backend/ranking/scoring_engine.py`: deterministic fit scoring
+- `backend/ranking/semantic.py`: LanceDB semantic matching and fallback behavior
+- `backend/generation/service.py` and `backend/generation/generators/`: resume, cover letter, outreach, and package generation
+- `backend/data/repository.py`: repository facade for local persistence
+- `backend/data/sqlite/`, `backend/data/graph/`, and `backend/data/vector/`: SQLite, Kuzu, and LanceDB access helpers
 
 ## Storage
 
